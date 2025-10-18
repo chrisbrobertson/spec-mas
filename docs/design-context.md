@@ -8,10 +8,10 @@ Architecture Layers
 Layer 1: SPECIFICATION (Spec Kit)
          └─ Living docs defining requirements, architecture, acceptance criteria
 
-Layer 2: ORCHESTRATION (LangGraph - distributed only)
+Layer 2: ORCHESTRATION (LangGraph - parallel agents only)
          └─ Coordinates multiple specialized agents working in parallel
 
-Layer 3: AGENT EXECUTION (Claude Agent SDK / Cursor)
+Layer 3: AGENT EXECUTION (Claude Agent SDK / Cursor / other similar tools)
          └─ Individual agents executing tasks with tools/context
 
 Layer 4: TOOL ACCESS (MCP)
@@ -23,14 +23,14 @@ Layer 5: VALIDATION (TDD/TDG)
 
 ## Two Implementation Patterns
 
-### Local Pattern (1-5 developers, <100k LOC)
+### Local Pattern (1-5 developers, <10k LOC)
 - **Tools:** Spec Kit + Claude Agent SDK + TDD
 - **Flow:** Write spec → Generate tests → Agent implements → Human reviews
 - **Characteristics:** Single agent at a time, sequential execution, CLI-driven
 - **Setup Time:** 2-3 weeks
 - **No infrastructure needed**
 
-### Distributed Pattern (5+ developers, >100k LOC)
+### Distributed Pattern (5+ developers, >10k LOC)
 - **Tools:** Spec Kit + LangGraph + Claude Agent SDK + MCP + TDD
 - **Flow:** Collaborative spec → AI planning → Parallel agent execution → Integration review
 - **Characteristics:** Multiple specialized agents, parallel tracks, centralized orchestration
