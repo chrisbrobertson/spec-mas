@@ -1,0 +1,587 @@
+# Spec-MAS Architecture Decisions Record (ADR)
+
+**Document Version:** 1.0  
+**Last Updated:** October 2025  
+**Status:** ACTIVE (Decisions Guide v1 Design)
+
+---
+
+## ADR Template
+
+Each decision follows:
+```
+ADR-NNN: [Decision Title]
+Status: APPROVED | PENDING | DEFERRED
+Date: YYYY-MM-DD
+Affected By: [Which conflicts/gaps this resolves]
+Addresses: [Design documents this affects]
+Decision Maker(s): [Who approved]
+```
+
+---
+
+## APPROVED Decisions (Implement in v1)
+
+### ADR-001: Platform Architecture as Distinct Use Cases
+**Status:** APPROVED  
+**Date:** 2025-10-16  
+**Affected By:** Conflict 1.1 (Local vs. Distributed Pattern Incompatibility)  
+**Addresses:** Pattern Guide, Design Context
+
+**Decision:**
+Local and Distributed patterns are related but fundamentally different use cases. Design documentation must explicitly distinguish between them.
+
+**Rationale:**
+- Local Pattern: 1-5 person teams, sequential execution, single agent
+- Distributed Pattern: 5+ person teams, parallel execution, multi-agent
+- Each has different tooling, workflow, and coordination requirements
+- Clarity prevents teams from attempting incompatible transitions
+
+**Implementation:**
+- Update Pattern Guide to explicitly label "Local" vs. "Distributed" workflows
+- Clearly mark which sections apply to which pattern
+- Provide separate quick-start guides per pattern
+
+**Consequences:**
+- Teams must choose their pattern upfront
+- No easy migration between patterns (acknowledged as deferred decision)
+- Clearer mental model for users
+
+**Review Criteria:**
+- Documentation clearly distinguishes patterns
+- Team can identify which pattern applies to them
+- No confusion about tooling/workflows between patterns
+
+---
+
+### ADR-002: Specification Governance with Human Approval
+**Status:** APPROVED  
+**Date:** 2025-10-16  
+**Affected By:** Conflict 1.2 (Specification as Immutable Source of Truth)  
+**Addresses:** Pattern Guide (Phase 4), Design Context
+
+**Decision:**
+Specifications are the source of truth and must remain version-controlled. Agents can suggest specification updates, but updates are not live until human approval.
+
+**Rationale:**
+- Allows agents to operate autonomously
+- Agents can identify spec gaps/improvements
+- Humans maintain ultimate control over source of truth
+- Prevents spec drift from unchecked agent modifications
+- Audit trail of all changes maintained via git
+
+**Implementation:**
+- Specification branching: `spec/[feature-name]` for development
+- Main branch contains only human-approved specs
+- Agent suggestions: Written to branch in `[spec-path]/suggestions/` directory
+- Approval workflow: Human merges approved suggestions back to main
+- All spec changes tracked in commit history with approver info
+
+**Consequences:**
+- Human approval adds latency (~hours to days per spec change)
+- Reduced autonomous agent operation when specs need updates
+- Better governance and auditability
+
+**Review Criteria:**
+- Spec changes are version-controlled
+- All changes require human merge approval
+- Commit history shows who approved what
+- Agents can surface suggestions without blocking
+
+---
+
+### ADR-003: MCP as Tool Integration Protocol, Not Orchestration
+**Status:** APPROVED  
+**Date:** 2025-10-16  
+**Affected By:** Conflict 1.3 (MCP Misconceptions), Hallucination 3.3 (Agent Interoperability)  
+**Addresses:** Design Context, Approach 1 & 3, Technical Stack section
+
+**Decision:**
+MCP (Model Context Protocol) standardizes how individual agents access tools/data. MCP is NOT an orchestration layer; agent coordination is handled by LangGraph (Distributed) or Claude SDK (Local).
+
+**Rationale:**
+- MCP protocol standardizes tool integration across frameworks
+- Each agent independently implements MCP clients
+- Orchestration happens at LangGraph level, not MCP level
+- Prevents overengineering MCP for problems it doesn't solve
+- Clearer mental model of tool access
+
+**Implementation:**
+- MCP servers expose: databases, APIs, file systems, documentation
+- Each agent (Dev, QA, etc.) accesses tools via MCP clients
+- Agent communication/coordination via: LangGraph state + git branches
+- Tool results shared via: LangGraph state or written to branch
+
+**Consequences:**
+- MCP integration per agent, not centralized
+- No automatic tool sharing/caching across agents (each calls independently)
+- Better separation of concerns
+
+**Review Criteria:**
+- Design docs clearly distinguish MCP (protocol) from orchestration (LangGraph)
+- No claims about MCP solving coordination problems
+- Architects understand MCP's actual scope
+
+---
+
+### ADR-004: Hybrid Test-Driven Generation (Constraint + Generated)
+**Status:** APPROVED  
+**Date:** 2025-10-16  
+**Affected By:** Conflict 1.5 (Test-Driven Generation), Hallucination 3.4 (Quality Gates)  
+**Addresses:** Validation Rules, Pattern Guide, Design Context
+
+**Decision:**
+Tests are hybrid: some pre-written (constraint tests from spec), some generated by AI (coverage tests). Constraint tests are non-negotiable; generated tests add coverage.
+
+**Rationale:**
+- Constraint tests: Defined in acceptance criteria, specify minimum behavior
+- Generated tests: Fill gaps, improve coverage, verify edge cases
+- Hybrid approach: Balances specification precision with automation
+- Different LLMs for generation vs. testing reduce correlated hallucinations
+- Human review stays in loop for critical tests
+
+**Implementation:**
+- In spec, mark critical acceptance criteria as "constraint tests"
+- Test Agent generates additional tests for coverage
+- Use different LLM for test generation vs. code generation
+- Dev Agent implements to pass both constraint and generated tests
+- Human review focuses on constraint test quality
+
+**Specification Format Example:**
+```yaml
+acceptance_criteria:
+  - criterion: "Valid user can log in"
+    test_type: CONSTRAINT  # Must be tested exactly as specified
+    implementation: "...exact test code..."
+  - criterion: "Invalid email rejected"
+    test_type: GENERATED   # AI can generate appropriate tests
+```
+
+**Consequences:**
+- Test quality depends on both human spec and AI generation
+- Multi-model approach adds complexity but improves robustness
+- Human must still review critical tests
+
+**Review Criteria:**
+- Critical tests marked as constraints in spec
+- Generated tests don't violate constraints
+- Multi-LLM strategy implemented
+- Human review criteria documented
+
+---
+
+### ADR-005: Eventually-Consistent Distributed State
+**Status:** APPROVED  
+**Date:** 2025-10-16  
+**Affected By:** Gap 2.2 (State Management)  
+**Addresses:** Technical Stack (Layer 5), Distributed Pattern
+
+**Decision:**
+LangGraph state is eventually consistent (acceptable window: 10s of minutes to hours). Consistency requirement is only enforced before final validation. Conflict resolution: agent committing second is responsible for conflict resolution (via redo).
+
+**Rationale:**
+- Strict consistency would require distributed transactions (overcomplicated)
+- 10s-of-minutes window acceptable for most development scenarios
+- Final validation gates ensure consistency before deployment
+- Simple conflict resolution: "you commit last, you fix it"
+- Aligns with git workflow (familiar model)
+
+**Implementation:**
+- LangGraph state stored as versioned snapshots
+- Each agent reads state at start, writes results at end
+- Concurrent writes: last-write-wins (timestamps used as tiebreaker)
+- Conflict detection: automatic via state versioning
+- Conflict resolution: agent who caused conflict must rerun their work
+
+**State Versioning:**
+```python
+state = {
+  "spec_version": 1.0,
+  "timestamp": "2025-10-16T14:30:00Z",
+  "assignments": {
+    "dev_agent": {...},  # locked by agent during execution
+    "qa_agent": {...}
+  }
+}
+```
+
+**Consequences:**
+- Temporary inconsistencies possible (10s-min scale)
+- No strong ACID guarantees
+- Agent reruns required on conflicts (adds latency)
+- Simpler implementation
+
+**Review Criteria:**
+- LangGraph state schema documented
+- Conflict detection implemented
+- Conflict resolution procedure documented
+- State versioning with timestamps
+- Final validation gates enforce full consistency
+
+---
+
+### ADR-006: Git-Based Compliance & Audit Trail
+**Status:** APPROVED  
+**Date:** 2025-10-16  
+**Affected By:** Gap 2.3 (Compliance and Audit Trail)  
+**Addresses:** CI/CD integration, Compliance section
+
+**Decision:**
+Compliance and audit trail achieved through frequent commits to unique branch per feature. Commit messages use template including: what changed, why, who, approver.
+
+**Rationale:**
+- Git provides built-in versioning and audit trail
+- Commit history immutable and cryptographically signed
+- Familiar to engineering teams (no new tooling)
+- Sufficient for governance (not claimed suitable for all regulated industries)
+- Enables forensic analysis of decisions
+
+**Implementation:**
+Commit message template:
+```
+feat: [feature-name] - [what changed]
+
+SPEC: [spec-version] 
+AGENT: [agent-name]
+WHY: [rationale for this implementation]
+APPROVER: [human who approved]
+APPROVAL_DATE: [date]
+```
+
+Branch structure:
+```
+feature/[feature-name]
+  └── commits: each agent/phase creates atomic commit
+  └── final: human approves with merge commit
+  
+main (master)
+  └── only human-approved features
+```
+
+**Consequences:**
+- Full commit history available for audit
+- NOT claimed suitable for all regulated industries (acknowledged in v1)
+- Humans can review decision rationale
+- Team still responsible for security/compliance details
+
+**Review Criteria:**
+- All agents commit with templated messages
+- Commits are atomic and traceable
+- Approval visible in git history
+- Documentation explicitly: "Not suitable for regulated industries claiming HIPAA/SOC2 compliance"
+
+---
+
+### ADR-007: Error Recovery with Escalation Heuristics
+**Status:** APPROVED  
+**Date:** 2025-10-16  
+**Affected By:** Gap 2.1 (Error Recovery), Risk 4.2 (Hallucinations)  
+**Addresses:** Pattern Guide, Orchestration Workflow
+
+**Decision:**
+Error recovery strategy:
+1. First failure: Agent retries (same model)
+2. Second failure: Escalate to alternate LLM
+3. Third failure: Escalate to human for review/action
+
+**Rationale:**
+- Gives agent opportunities to recover autonomously
+- Alternate LLM likely has different reasoning patterns (reduces correlated hallucinations)
+- Human escalation prevents infinite loops
+- Clear, simple heuristic (easy to implement and understand)
+
+**Implementation:**
+```python
+def handle_agent_failure(agent, task, error_count):
+    if error_count == 1:
+        agent.retry(task)  # Same agent, same model
+    elif error_count == 2:
+        alternate_agent = get_alternate_llm(agent.model)
+        alternate_agent.attempt(task)
+    elif error_count >= 3:
+        escalate_to_human(task, error_history)
+```
+
+**Failure Definition:**
+- Task does not complete successfully
+- Generated code does not pass tests
+- Agent reaches max context window
+- Timeout exceeded
+
+**Consequences:**
+- Some tasks require human intervention
+- Multi-model cost increases
+- Adds latency for failing tasks
+- Clearer debugging path
+
+**Review Criteria:**
+- Failure conditions defined in code
+- Alternate LLM selection logic documented
+- Human escalation routing/notification documented
+- SLA for human review specified
+
+---
+
+### ADR-008: Agent-to-Agent Communication via Git + Reports
+**Status:** APPROVED  
+**Date:** 2025-10-16  
+**Affected By:** Hallucination 3.3 (MCP Solving Interoperability), Gap 2.1 (Coordination)  
+**Addresses:** Distributed Pattern, Design Context Approach 3
+
+**Decision:**
+Agents communicate by writing structured reports to well-known git locations. Each agent reads others' reports to inform its work.
+
+**Rationale:**
+- Leverages existing git infrastructure
+- Reports are versioned and auditable
+- Simple, human-inspectable format
+- Agents don't need to understand each other's APIs
+- Aligns with eventually-consistent state model
+
+**Implementation:**
+Directory structure per feature branch:
+```
+feature/[feature-name]/
+├── spec/
+│   ├── requirements.md        (human-written)
+│   └── acceptance_criteria.md (human-written)
+├── reports/
+│   ├── requirements-agent/
+│   │   ├── analysis.json      (gaps, conflicts, questions)
+│   │   └── validation.json    (spec readiness)
+│   ├── architecture-agent/
+│   │   ├── design.json        (proposed architecture)
+│   │   └── validation.json    (compliance with standards)
+│   ├── dev-agent-1/
+│   │   ├── implementation.md  (what was built)
+│   │   └── status.json        (tests passing, coverage)
+│   ├── qa-agent/
+│   │   ├── test-plan.md       (comprehensive tests)
+│   │   └── results.json       (pass/fail, coverage %)
+│   └── dev-agent-2/
+│       ├── integration.md     (integration approach)
+│       └── status.json        (ready for testing)
+└── src/                       (actual implementation)
+```
+
+**Report Format (JSON):**
+```json
+{
+  "agent": "requirements-agent",
+  "phase": "analysis",
+  "timestamp": "2025-10-16T14:30:00Z",
+  "status": "complete|blocked|failed",
+  "findings": [
+    {
+      "type": "gap",
+      "severity": "high",
+      "description": "Missing error handling for payment timeout"
+    }
+  ],
+  "recommendations": [...],
+  "dependencies": ["architecture-agent output required"],
+  "ready_for_next_phase": true
+}
+```
+
+**Orchestration Logic:**
+```
+1. Requirements Agent: reads spec → writes analysis report
+2. Architecture Agent: reads spec + requirements report → writes design
+3. Dev Agents (parallel): read spec + architecture → implement
+4. QA Agent: reads implementation + spec → generates tests
+5. Integration: read all reports → validate everything consistent
+6. Human: reviews all reports + code → approves or requests changes
+```
+
+**Consequences:**
+- Reports become extensive over time (git history grows)
+- Human must inspect reports to understand status
+- Simpler than real-time message passing
+- Better auditability
+
+**Review Criteria:**
+- Report structure documented with JSON schema
+- All agents write reports in expected locations
+- Orchestration logic sequences agents correctly
+- Human review includes all reports
+
+---
+
+### ADR-009: Multi-Model Approach for Reduced Hallucination
+**Status:** APPROVED  
+**Date:** 2025-10-16  
+**Affected By:** Risk 4.2 (Agent Hallucinations), Hallucination 3.4 (Test Quality)  
+**Addresses:** Technical Stack, Agent Selection
+
+**Decision:**
+Use different LLMs for test generation vs. code generation. This reduces likelihood of correlated hallucinations about ambiguous specifications.
+
+**Rationale:**
+- If test and code agents use same model, they may misunderstand spec identically
+- Different models have different reasoning patterns, knowledge bases, biases
+- Independent misunderstandings more likely caught by human review
+- Test Agent validates Code Agent's assumptions
+
+**Implementation:**
+```yaml
+agents:
+  test_generation:
+    model: claude-opus-4  # For deep reasoning about test coverage
+    temperature: 0.3     # Lower creativity for testing
+  code_generation:
+    model: gpt-4o         # Different vendor, different patterns
+    temperature: 0.5     # Moderate creativity
+  requirements_analysis:
+    model: claude-opus-4  # Deep reasoning for analysis
+  qa_validation:
+    model: gemini-pro     # Third vendor for independent review
+```
+
+**Consequences:**
+- Cost increases (using multiple models)
+- More complex orchestration
+- Requires cost tracking per model
+- Better quality outputs (due to independent verification)
+
+**Review Criteria:**
+- Model selection documented with rationale
+- Cost estimates include multi-model pricing
+- Agent selection rules clear
+- Fallback models specified
+
+---
+
+## PENDING Decisions (Require Input Before Implementation)
+
+### ADR-010: Specification Complexity Limits
+**Status:** PENDING  
+**Date:** 2025-10-16  
+**Affected By:** Risk 4.1 (Unbounded Complexity)  
+**Addresses:** Validation Rules
+
+**Decision Required:**
+Define complexity thresholds for specs. When exceeded, guide user to decompose.
+
+**Outstanding Questions:**
+- How to measure complexity? (line count? sections? acceptance criteria count?)
+- What's a reasonable upper limit?
+- What's the decomposition process?
+- Who/what triggers the check?
+
+**Timeline:** v1.1 (after user feedback)
+
+---
+
+### ADR-011: Specification Suggestion Workflow
+**Status:** PENDING  
+**Date:** 2025-10-16  
+**Affected By:** ADR-002 (Spec Governance)  
+**Addresses:** Pattern Guide, Workflow
+
+**Decision Required:**
+Define exact workflow when agents suggest spec changes:
+- Where suggestions go
+- Who reviews/approves
+- SLA for approval
+- What happens if rejected
+
+**Outstanding Questions:**
+- PR-based? Branch-based? Comment-based?
+- Product owner only? Technical lead? Both?
+- Hours? Days? SLA needed?
+
+**Timeline:** Before v1.1 if early adopters hitting this flow
+
+---
+
+## DEFERRED Decisions (Acknowledged, Not Handling Now)
+
+### ADR-012: Local-to-Distributed Migration Path
+**Status:** DEFERRED  
+**Date:** 2025-10-16  
+**Affected By:** None yet  
+**Addresses:** Pattern Guide
+
+**Reason Deferred:** Pattern compatibility unknown; handle after v1 proves patterns
+
+**Decision Needed Later:**
+- Spec compatibility between patterns
+- Migration procedure
+- Rework required
+- Rollback strategy
+
+**Estimated Timeline:** 3-6 months post-v1 release
+
+---
+
+### ADR-013: Regulated Industry Compliance
+**Status:** DEFERRED  
+**Date:** 2025-10-16  
+**Affected By:** Gap 2.3 (Compliance)  
+**Addresses:** Risk assessment, market positioning
+
+**Reason Deferred:** Design intentionally makes no claims about regulated use
+
+**Explicitly NOT Claimed:** Suitability for HIPAA/SOC2/PCI-DSS compliance
+
+**Decision Needed Later:** If/when pursuing regulated industry market
+
+**Estimated Timeline:** When regulatory sales become priority
+
+---
+
+### ADR-014: Token Accounting & Cost Attribution
+**Status:** DEFERRED  
+**Date:** 2025-10-16  
+**Affected By:** Gap 2.6  
+**Addresses:** Cost management
+
+**Reason Deferred:** Left to underlying tools; not relevant pre-production
+
+**Decision Needed Later:** When costs exceed targets; need sophisticated tracking
+
+**Estimated Timeline:** Post-v1 when production patterns clear
+
+---
+
+## Decision Dependencies
+
+```
+APPROVED (Can implement now):
+├─ ADR-001 (Pattern architecture) → ADR-002 (Spec governance)
+├─ ADR-002 (Spec governance) → ADR-008 (Communication)
+├─ ADR-003 (MCP) → ADR-008 (Communication)
+├─ ADR-004 (Testing) → ADR-009 (Multi-model)
+├─ ADR-005 (State) → ADR-008 (Communication)
+├─ ADR-006 (Compliance) → ADR-008 (Communication)
+├─ ADR-007 (Error handling) → ADR-005 (State)
+├─ ADR-008 (Communication) → ADR-010 (Complexity)
+└─ ADR-009 (Multi-model) → ADR-004 (Testing)
+
+PENDING (Need decision before v1):
+├─ ADR-010 (Complexity) ← needs user feedback
+└─ ADR-011 (Suggestion workflow) ← depends on ADR-002
+
+DEFERRED (Future decision points):
+├─ ADR-012 (Migration) ← post-v1
+├─ ADR-013 (Regulated) ← if pursuing market
+└─ ADR-014 (Accounting) ← when cost is issue
+```
+
+---
+
+## Revision History
+
+| Version | Date | Changes |
+|---------|------|---------|
+| 1.0 | 2025-10-16 | Initial ADR set from conflict resolution |
+
+---
+
+## Approval Chain
+
+- **Architecture Lead:** [Pending]
+- **Product Owner:** [Pending]
+- **Security/Compliance:** [N/A for v1]
+
