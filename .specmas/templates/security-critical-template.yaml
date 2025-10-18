@@ -1,0 +1,239 @@
+apiVersion: specmas/v2
+kind: SecurityCriticalSpec
+metadata:
+  name: # Feature name
+  level: 5  # Security-critical level
+  version: 1.0.0
+  owners:
+    - name: # Product Owner
+      email: # email@company.com
+    - name: # Technical Lead
+      email: # email@company.com
+  security_classification: HIGH  # HIGH, MEDIUM, LOW
+  compliance_requirements:
+    - # e.g., PCI-DSS
+    - # e.g., GDPR
+
+specification:
+  # User-facing description
+  user_stories:
+    - As a [role], I want to [action] so that [benefit]
+    - # Add more user stories
+  
+  # Formal verification requirements (REQUIRED for security-critical)
+  formal_requirements:
+    invariants:
+      preconditions:
+        - # Condition that must be true before operation
+        - # e.g., "User must be authenticated"
+        - # e.g., "Input must be validated against schema"
+      
+      postconditions:
+        - # Condition that must be true after operation
+        - # e.g., "Audit log entry created"
+        - # e.g., "User notified of action"
+      
+      security_assertions:
+        - # Security property that must always hold
+        - # e.g., "No PII in application logs"
+        - # e.g., "All data encrypted at rest"
+        - # e.g., "Session tokens expire after 30 minutes"
+    
+    forbidden_operations:
+      never_do:
+        - # Operations that must never occur
+        - # e.g., "Log passwords or credit card numbers"
+        - # e.g., "Execute user-supplied shell commands"
+      
+      never_access:
+        - # Data/resources that must never be accessed
+        - # e.g., "Other users' private data"
+        - # e.g., "System configuration files"
+      
+      never_trust:
+        - # Inputs/sources that must never be trusted
+        - # e.g., "Client-supplied user IDs"
+        - # e.g., "Unsigned webhook payloads"
+    
+    # Deterministic test cases with expected checksums
+    deterministic_tests:
+      - description: # Test case description
+        input:
+          # Input parameters as key-value pairs
+        output:
+          # Expected output
+        checksum: # SHA256 hash of canonical output
+      
+      - description: # Error case
+        input:
+          # Invalid input
+        output:
+          error: # Expected error message
+        checksum: # SHA256 hash
+  
+  # Detailed functional requirements
+  functional_requirements:
+    - id: FR-1
+      description: # What the system must do
+      priority: HIGH  # HIGH, MEDIUM, LOW
+      validation_criteria:
+        - # How to verify this requirement
+    
+    - id: FR-2
+      description: # Next requirement
+      priority: MEDIUM
+      validation_criteria:
+        - # Verification criteria
+  
+  # Non-functional requirements
+  non_functional_requirements:
+    performance:
+      - id: NFR-P1
+        metric: response_time
+        requirement: "< 200ms for 95th percentile"
+        measurement: "Measured at API gateway"
+    
+    security:
+      - id: NFR-S1
+        requirement: "All API endpoints require authentication"
+        exceptions: ["health check endpoint"]
+      
+      - id: NFR-S2
+        requirement: "Rate limiting: 100 requests per minute per user"
+        enforcement: "Return 429 Too Many Requests"
+    
+    reliability:
+      - id: NFR-R1
+        metric: availability
+        requirement: "99.9% uptime"
+        measurement: "Monthly calculation"
+  
+  # Architecture constraints
+  architecture_constraints:
+    technology_stack:
+      - # e.g., "Use existing authentication service"
+      - # e.g., "PostgreSQL for data persistence"
+    
+    integration_points:
+      - system: # External system name
+        type: # REST, GraphQL, Message Queue
+        authentication: # How to authenticate
+        data_format: # JSON, XML, Protocol Buffers
+    
+    data_flow:
+      - source: # Where data comes from
+        destination: # Where it goes
+        format: # Data format
+        encryption: # Required encryption
+        validation: # Validation requirements
+  
+  # Acceptance criteria (must be testable)
+  acceptance_criteria:
+    - id: AC-1
+      given: # Initial state
+      when: # Action taken
+      then: # Expected result
+    
+    - id: AC-2
+      given: # Setup
+      when: # Trigger
+      then: # Assertion
+  
+  # Error scenarios and recovery
+  error_handling:
+    - error: # Error type
+      recovery: # How to recover
+      user_message: # What to show user
+      logging: # What to log
+      alerting: # Who to alert
+  
+  # Security-specific requirements
+  security_requirements:
+    authentication:
+      method: # JWT, OAuth2, SAML
+      token_lifetime: # in seconds
+      refresh_strategy: # How tokens are refreshed
+    
+    authorization:
+      model: # RBAC, ABAC, etc.
+      roles:
+        - name: # Role name
+          permissions: # List of permissions
+      
+    encryption:
+      at_rest: # Algorithm for data at rest
+      in_transit: # TLS version and ciphers
+      key_management: # How keys are managed
+    
+    audit:
+      events:
+        - # List of events to audit
+      retention: # How long to keep audit logs
+      storage: # Where to store audit logs
+  
+  # Rollback and recovery procedures
+  rollback_procedures:
+    triggers:
+      - # Condition that triggers rollback
+    
+    steps:
+      - # Step 1 of rollback
+      - # Step 2 of rollback
+    
+    validation:
+      - # How to verify successful rollback
+    
+    communication:
+      - # Who to notify
+      - # What to communicate
+
+# Implementation guidance (for agents and developers)
+implementation_notes:
+  critical_paths:
+    - # Code paths requiring extra scrutiny
+  
+  testing_requirements:
+    - # Specific test scenarios that must be covered
+  
+  performance_considerations:
+    - # Known performance bottlenecks to avoid
+  
+  security_checklist:
+    - [ ] Input validation implemented
+    - [ ] Output encoding implemented
+    - [ ] Authentication checks on all endpoints
+    - [ ] Authorization checks before data access
+    - [ ] Audit logging for sensitive operations
+    - [ ] Rate limiting configured
+    - [ ] Error messages don't leak sensitive info
+    - [ ] Security headers configured
+    - [ ] CSRF protection enabled
+    - [ ] SQL injection prevention
+
+# Dependencies and external requirements
+dependencies:
+  services:
+    - name: # Service name
+      version: # Version required
+      purpose: # Why it's needed
+  
+  libraries:
+    - name: # Library name
+      version: # Version constraints
+      security_review: # Has it been reviewed?
+  
+  data_sources:
+    - name: # Database/API name
+      access_pattern: # Read, Write, Read/Write
+      sensitivity: # Data classification
+
+# Change management
+change_log:
+  - version: 1.0.0
+    date: # YYYY-MM-DD
+    changes:
+      - # Initial specification
+    reviewed_by:
+      - # Reviewer name
+    approved_by:
+      - # Approver name

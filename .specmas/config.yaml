@@ -1,0 +1,250 @@
+# Spec-MAS v2.0 Configuration
+version: 2.0
+
+# Validation Configuration
+validation:
+  progressive_gates:
+    enabled: true
+    fail_fast: true
+    require_all_gates: true
+    
+  gates:
+    level_1_syntax:
+      enabled: true
+      checks:
+        - required_sections
+        - valid_format
+        - no_empty_sections
+        - valid_requirement_ids
+        
+    level_2_semantic:
+      enabled: true
+      checks:
+        - requirements_traceable
+        - terms_defined
+        - no_conflicts
+        - security_requirements
+        
+    level_3_coverage:
+      enabled: true
+      checks:
+        - all_paths_specified
+        - error_conditions
+        - performance_bounds
+        - resource_limits
+        - rollback_procedures
+        
+    level_4_cross_reference:
+      enabled: true
+      checks:
+        - no_system_conflicts
+        - interfaces_defined
+        - dependencies_stated
+        - backwards_compatibility
+
+# Adversarial Review Configuration
+adversarial_review:
+  enabled: true
+  required_for_levels: [4, 5]
+  
+  adversaries:
+    security:
+      enabled: true
+      focus_areas:
+        - authentication
+        - authorization
+        - data_encryption
+        - injection_vulnerabilities
+        - access_control
+        
+    ambiguity:
+      enabled: true
+      vague_terms:
+        - should
+        - may
+        - consider
+        - appropriate
+        - reasonable
+        - might
+        - could
+        
+    implementation:
+      enabled: true
+      misinterpretation_patterns:
+        - edge_cases
+        - boundary_conditions
+        - race_conditions
+        - null_handling
+        
+    performance:
+      enabled: true
+      check_for:
+        - unbounded_loops
+        - memory_leaks
+        - database_n_plus_one
+        - missing_indexes
+        - cache_requirements
+        
+    compliance:
+      enabled: true
+      standards:
+        - GDPR
+        - PCI-DSS
+        - SOC2
+        - HIPAA
+  
+  human_review_required: true
+  max_findings_before_block: 10
+  critical_findings_block: true
+
+# Implementation Configuration
+implementation:
+  checkpoints:
+    enabled: true
+    stages:
+      - name: data_model
+        validation: "No PII in logs, encrypted storage"
+        human_review: true
+      - name: authentication_layer
+        validation: "Matches spec auth requirements"
+        security_scan: true
+      - name: business_logic
+        validation: "Passes property tests"
+        dual_agent_verify: true
+      - name: api_surface
+        validation: "No unspecified endpoints"
+        penetration_test: true
+        
+  deterministic_anchoring:
+    enabled: true
+    required_for:
+      - payments
+      - cryptography
+      - financial_calculations
+      - pricing_logic
+    checksum_algorithm: sha256
+    
+  dual_agent_verification:
+    enabled: true
+    required_for:
+      - authentication
+      - authorization
+      - pii_handling
+      - payment_processing
+      - database_migrations
+    max_divergence_allowed: 5  # percent
+    
+# Template Configuration
+templates:
+  simple:
+    min_level: 1
+    max_level: 2
+    format: markdown
+    required_sections:
+      - user_stories
+      - acceptance_criteria
+      
+  business_logic:
+    min_level: 3
+    max_level: 4
+    format: yaml
+    required_sections:
+      - user_stories
+      - functional_requirements
+      - invariants
+      - test_cases
+    optional_sections:
+      - performance_requirements
+      - security_requirements
+      
+  security_critical:
+    min_level: 5
+    max_level: 5
+    format: formal_yaml
+    required_sections:
+      - user_stories
+      - functional_requirements
+      - invariants
+      - forbidden_operations
+      - deterministic_tests
+      - security_assertions
+    mandatory_review:
+      - security_team
+      - architect
+      - compliance_officer
+
+# Agent Configuration
+agents:
+  claude_sdk:
+    default_model: claude-3-opus-20240229
+    temperature: 0.2  # Lower for more deterministic output
+    max_retries: 3
+    
+  verification_models:
+    primary: claude-3-opus-20240229
+    secondary: gpt-4-turbo  # For dual verification
+    
+  mcp_servers:
+    spec_kit:
+      enabled: true
+      endpoint: http://localhost:3100
+    testing:
+      enabled: true
+      endpoint: http://localhost:3101
+    security:
+      enabled: true
+      endpoint: http://localhost:3102
+
+# Monitoring and Metrics
+monitoring:
+  metrics:
+    spec_quality:
+      - first_pass_rate
+      - adversarial_findings_count
+      - implementation_accuracy
+      
+    security:
+      - vulnerabilities_detected
+      - checksum_validations
+      - dual_verification_coverage
+      
+    process:
+      - spec_approval_time
+      - implementation_success_rate
+      - rollback_frequency
+      
+  alerts:
+    security_violation:
+      severity: critical
+      action: automatic_rollback
+      notify:
+        - security_team
+        - on_call_engineer
+        
+    spec_violation:
+      severity: high
+      action: block_deployment
+      notify:
+        - spec_owner
+        - tech_lead
+        
+    performance_regression:
+      severity: medium
+      action: flag_for_review
+      notify:
+        - performance_team
+
+# Rollback Configuration
+rollback:
+  automatic_triggers:
+    - security_invariant_violation
+    - forbidden_operation_detected
+    - checksum_mismatch
+    - critical_test_failure
+    
+  manual_approval_required:
+    - database_migration_rollback
+    - third_party_integration_rollback
+    
+  max_rollback_time: 300  # seconds
+  preserve_audit_logs: true
