@@ -97,6 +97,12 @@ Specifications define WHAT → Agents determine HOW → Tests validate THAT
 - Git: Version control and communication
 - Tests: Validation
 
+#### P7: Expert Validation Before Execution
+- Domain expert AI agents review every specification prior to implementation
+- Roster of agents is configurable (security red/blue, QA, architecture, performance, etc.)
+- Each agent has independent instructions and produces an auditable report
+- Humans must acknowledge `High`/`Critical` findings before work continues
+
 ### 2.2 Design Constraints
 
 1. **Markdown-First** - All specifications in Markdown format (v3 standard)
@@ -418,6 +424,7 @@ workflow = StateGraph(SpecMASState)
 workflow.add_node("parse_spec", parse_specification)
 workflow.add_node("requirements_analysis", analyze_requirements)
 workflow.add_node("architecture_validation", validate_architecture)
+workflow.add_node("expert_validation", run_expert_spec_review)
 workflow.add_node("plan_decomposition", decompose_work)
 
 # Development Phase (Parallel)
@@ -438,6 +445,17 @@ workflow.add_conditional_edges(
         "pass": "qa_validation",
         "fail": "dev_backend",  # Route back to fix
         "retry": "run_tests"    # Retry with different approach
+    }
+)
+
+# Pre-Execution Validation Guard
+workflow.add_conditional_edges(
+    "expert_validation",
+    route_on_expert_scores,
+    {
+        "proceed": "plan_decomposition",
+        "revise": "requirements_analysis",
+        "override": "plan_decomposition"
     }
 )
 
@@ -473,6 +491,23 @@ workflow.add_edge("plan_decomposition", Send("dev_integration", task3))
       "location": "file:line"
     }
   ],
+  "expert_review": {
+    "agents": [
+      {
+        "name": "security_red_team",
+        "readiness": "Low|Moderate|High|Critical",
+        "report_path": ".specmas/reports/expert/security_red_team/{run_id}.md",
+        "summary": "Ordered list of gaps and strengths"
+      },
+      {
+        "name": "qa_validation",
+        "readiness": "Low|Moderate|High|Critical",
+        "report_path": ".specmas/reports/expert/qa_validation/{run_id}.md",
+        "summary": "Edge cases missing or confirmed"
+      }
+    ],
+    "user_decision": "continue|fix|override"
+  },
   "invariants": ["list of checked invariants"],
   "coverage": {
     "requirements": "95%",
@@ -503,10 +538,11 @@ workflow.add_edge("plan_decomposition", Send("dev_integration", task3))
 - Test Generator
 
 **Quality Agents:**
-- QA Reviewer
-- Security Auditor
-- Performance Tester
-- Code Reviewer
+- Security Red Team Validator (offensive posture)
+- Security Blue Team Defender (control verification)
+- QA Validation Agent (functional coverage)
+- System Architecture Reviewer (integration & scalability)
+- Performance & Reliability Analyst (latency, throughput, SLOs)
 
 #### 4.3.2 Agent Execution Loop
 
@@ -692,6 +728,37 @@ feature/[feature-name]/
 - Performance metrics numeric and measurable
 - Error scenarios cover critical paths
 
+#### 4.5.4 Expert Spec Validation (Pre-Execution)
+
+- Every specification must pass a configurable battery of domain expert AI agents before any execution or implementation work begins.
+- Agents are declared in `.specmas/config.yaml` under `validation.agents[]`, each with its own prompt/instructions, guardrails, and severity thresholds.
+- Typical bundle includes offensive and defensive security (red/blue), QA coverage, system architecture, and performance/reliability reviewers; teams can add or remove agents per product domain.
+- Each agent emits a Markdown (and optional JSON) report to `.specmas/reports/expert/<agent_slug>/<spec_id>.md`, capturing findings, evidence, and remediation guidance.
+- Agents return an overall readiness score `Low | Moderate | High | Critical`. Scores bubble into a consolidated dashboard that the orchestrator surfaces before work can continue.
+- When any agent reports `High` or `Critical`, the workflow pauses for a human to either remediate the specification or explicitly override and continue; `Low`/`Moderate` scores allow automatic progression.
+
+```yaml
+validation:
+  agents:
+    - name: security_red_team
+      prompt_path: assistants/claude-project/prompts/security-red.md
+      report_format: markdown
+      min_readiness: Moderate
+    - name: security_blue_team
+      prompt_path: assistants/claude-project/prompts/security-blue.md
+      report_format: markdown
+      min_readiness: Moderate
+    - name: qa_validation
+      prompt_path: assistants/claude-project/prompts/qa.md
+      report_format: markdown
+    - name: system_architecture
+      prompt_path: assistants/claude-project/prompts/architecture.md
+      report_format: markdown
+    - name: performance_reliability
+      prompt_path: assistants/claude-project/prompts/performance.md
+      report_format: markdown
+```
+
 ---
 
 ## 5. Data Architecture
@@ -749,6 +816,27 @@ CREATE TABLE adversarial_findings (
     created_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
+-- Expert Agent Scores
+CREATE TABLE expert_agent_scores (
+    id UUID PRIMARY KEY,
+    run_id UUID REFERENCES validation_runs(run_id),
+    agent_name VARCHAR(100) NOT NULL,
+    readiness VARCHAR(10) CHECK (readiness IN ('Low', 'Moderate', 'High', 'Critical')),
+    summary TEXT,
+    report_path TEXT NOT NULL,
+    prompt_version VARCHAR(40),
+    created_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+-- Expert Review Decisions
+CREATE TABLE expert_review_decisions (
+    run_id UUID PRIMARY KEY REFERENCES validation_runs(run_id),
+    decision VARCHAR(20) CHECK (decision IN ('continue', 'fix', 'override')),
+    decided_by VARCHAR(255),
+    decided_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    notes TEXT
+);
+
 -- Decision Log (Governance)
 CREATE TABLE decision_log (
     id UUID PRIMARY KEY,
@@ -772,6 +860,14 @@ CREATE TABLE decision_log (
 │   ├── security-critical.md
 │   └── simple.md
 └── reports/                 # Validation reports (gitignored)
+    ├── gates/               # Automated gate output (JSON/SARIF)
+    ├── adversarial/         # Adversarial review bundles
+    └── expert/              # Domain expert agent reports
+        ├── security_red_team/
+        ├── security_blue_team/
+        ├── qa_validation/
+        ├── system_architecture/
+        └── performance_reliability/
 
 specs/
 ├── features/                # Feature specifications
@@ -849,6 +945,7 @@ def create_feature_workflow():
     # Planning Nodes
     workflow.add_node("parse_spec", parse_specification)
     workflow.add_node("validate_spec", validate_specification)
+    workflow.add_node("expert_validation", run_expert_spec_review)
     workflow.add_node("analyze_requirements", analyze_requirements)
     workflow.add_node("validate_architecture", validate_architecture)
     workflow.add_node("decompose_work", decompose_into_tasks)
@@ -865,7 +962,16 @@ def create_feature_workflow():
     
     # Planning Flow
     workflow.add_edge("parse_spec", "validate_spec")
-    workflow.add_edge("validate_spec", "analyze_requirements")
+    workflow.add_edge("validate_spec", "expert_validation")
+    workflow.add_conditional_edges(
+        "expert_validation",
+        route_on_expert_scores,
+        {
+            "proceed": "analyze_requirements",
+            "revise": "validate_spec",
+            "override": "analyze_requirements"
+        }
+    )
     workflow.add_edge("analyze_requirements", "validate_architecture")
     workflow.add_edge("validate_architecture", "decompose_work")
     
@@ -906,6 +1012,30 @@ def route_on_test_results(state: SpecMASState) -> str:
         return "fail"
     else:
         return "error"
+
+def route_on_expert_scores(state: SpecMASState) -> str:
+    review = state.get("expert_review", {})
+    decision = review.get("user_decision")
+
+    if decision == "fix":
+        return "revise"
+    if decision == "override":
+        return "override"
+    if decision == "continue":
+        return "proceed"
+
+    scores = [
+        agent.get("readiness", "").upper()
+        for agent in review.get("agents", [])
+    ]
+
+    if any(score in {"HIGH", "CRITICAL"} for score in scores):
+        return "revise"
+    if not scores or all(score in {"LOW", "MODERATE"} for score in scores):
+        return "proceed"
+
+    # Default to user confirmation when in doubt
+    return "revise"
 
 def route_on_findings(state: SpecMASState) -> str:
     critical = [f for f in state["findings"] if f["severity"] == "CRITICAL"]
@@ -1143,7 +1273,42 @@ class SpecValidator:
             self.gates_passed.append("G4")
 ```
 
-### 7.2 Adversarial Review System
+### 7.2 Expert Agent Validation Pipeline
+
+```python
+class ExpertValidationOrchestrator:
+    def __init__(self, config: ValidationConfig):
+        self.agents = [
+            ExpertAgent(defn)
+            for defn in config.expert_agents
+        ]
+
+    async def run(self, spec: Specification) -> ExpertReview:
+        """Execute expert agents in parallel and aggregate scores"""
+        tasks = [agent.evaluate(spec) for agent in self.agents]
+        agent_results = await asyncio.gather(*tasks)
+
+        review = ExpertReview()
+        for result in agent_results:
+            review.add_agent_result(result)
+            self._persist_report(result)
+
+        review.user_decision = await prompt_user(review.dashboard())
+        return review
+
+    def _persist_report(self, result: AgentResult):
+        path = f".specmas/reports/expert/{result.slug}/{result.spec_id}.md"
+        write_markdown(path, result.markdown_report)
+        write_json(path.replace('.md', '.json'), result.to_dict())
+```
+
+- Each `ExpertAgent` wraps a model, prompt, rubric, and optional guardrails file so teams can independently version instruction sets.
+- The orchestrator fans out to all configured agents asynchronously; it can run per-domain subsets (e.g., security-only for hotfixes) based on policy.
+- Scores normalise to `Low`, `Moderate`, `High`, or `Critical` and include rationales so the dashboard can highlight the riskiest gaps.
+- `_persist_report` saves Markdown/JSON reports in the standard `.specmas/reports/expert/<agent>/` folders for auditability.
+- `prompt_user` surfaces the consolidated results to the product owner or tech lead, requiring them to either `continue`, `fix`, or `override` before the workflow resumes.
+
+### 7.3 Adversarial Review System
 
 ```python
 class AdversarialReviewer:
