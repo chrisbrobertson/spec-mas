@@ -1,40 +1,98 @@
 {
-  "name": "specmas-v2-update",
-  "version": "2.0.0",
-  "description": "Spec-MAS v2.0 Security-First Update - Formal verification, validation gates, and adversarial review for AI-assisted development",
+  "name": "specmas-v3-startup",
+  "version": "3.0.0",
+  "description": "Spec-MAS v3.0 - Specification-driven development for startups. Write specs, let AI implement.",
   "main": "index.js",
+  "bin": {
+    "specmas": "./scripts/specmas.js"
+  },
   "scripts": {
-    "install-python": "pip install -r requirements.txt",
-    "validate": "python specmas/validation/gates.py",
-    "adversarial": "python specmas/adversarial/review.py",
-    "migrate": "python scripts/migrate_to_v2.py",
-    "test": "pytest tests/",
-    "lint": "eslint . && flake8 specmas/"
+    "specmas": "node scripts/specmas.js",
+    "validate-spec": "node scripts/validate-spec.js",
+    "validate-all": "find specs -name '*.md' -not -path '*/node_modules/*' -exec node scripts/validate-spec.js {} \\; || true",
+    "review-spec": "node scripts/review-spec.js",
+    "review-approve": "node scripts/review-approval.js",
+    "generate-tests": "node scripts/generate-tests.js",
+    "generate-tests:ai": "node scripts/generate-tests.js --ai",
+    "generate-tests:unit": "node scripts/generate-tests.js --type unit",
+    "generate-tests:integration": "node scripts/generate-tests.js --type integration",
+    "generate-tests:e2e": "node scripts/generate-tests.js --type e2e",
+    "generate-deterministic": "node scripts/generate-deterministic-tests.js",
+    "enhance-tests": "node scripts/ai-enhance-tests.js",
+    "decompose-tasks": "node scripts/task-decomposition.js",
+    "implement-spec": "node scripts/implement-spec.js",
+    "implement-spec:dry-run": "node scripts/implement-spec.js --dry-run",
+    "integrate-code": "node scripts/code-integration.js",
+    "integrate-code:check": "node scripts/code-integration.js --check-only",
+    "validate-impl": "node scripts/validate-implementation.js",
+    "validate-impl:strict": "node scripts/validate-implementation.js --strict",
+    "validate-impl:report": "node scripts/validate-implementation.js --report-only",
+    "security-scan": "node scripts/security-scan.js",
+    "security-scan:strict": "node scripts/security-scan.js --strict",
+    "coverage-report": "node scripts/coverage-report.js",
+    "coverage-report:collect": "node scripts/coverage-report.js --collect",
+    "traceability": "node scripts/traceability-matrix.js",
+    "traceability:csv": "node scripts/traceability-matrix.js --format csv",
+    "quality-check": "node scripts/code-quality-check.js",
+    "quality-check:strict": "node scripts/code-quality-check.js --strict",
+    "qa-full": "npm run validate-impl && npm run security-scan && npm run quality-check",
+    "qa-report": "npm run validate-impl --report-only && npm run security-scan && npm run coverage-report && npm run traceability",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "test:unit": "jest tests/unit",
+    "test:integration": "jest tests/integration",
+    "test:e2e": "jest tests/e2e",
+    "test:deterministic": "jest tests/deterministic",
+    "dev": "npm run dev:next",
+    "build": "npm run build:next",
+    "start": "npm run start:next",
+    "lint": "eslint . --ext .js,.jsx,.ts,.tsx",
+    "lint:fix": "eslint . --ext .js,.jsx,.ts,.tsx --fix",
+    "format": "prettier --write \"**/*.{js,jsx,ts,tsx,json,md}\"",
+    "metrics": "node scripts/track-metrics.js",
+    "setup": "node scripts/startup-setup.js",
+    "precommit": "npm run lint && npm run test",
+    "dev:next": "next dev",
+    "build:next": "next build",
+    "start:next": "next start"
   },
   "keywords": [
     "spec-mas",
     "ai-development",
     "specification",
-    "validation",
-    "security",
-    "adversarial-testing"
+    "startup",
+    "mvp",
+    "claude",
+    "chatgpt"
   ],
   "author": "Spec-MAS Team",
   "license": "Apache-2.0",
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.20.0",
-    "@langchain/core": "^0.2.0",
-    "@langchain/langgraph": "^0.1.0",
     "yaml": "^2.3.0",
-    "ajv": "^8.12.0",
+    "js-yaml": "^4.1.0",
+    "dotenv": "^16.3.1",
     "commander": "^11.1.0"
   },
   "devDependencies": {
     "eslint": "^8.54.0",
     "prettier": "^3.1.0",
-    "typescript": "^5.3.0",
-    "@types/node": "^20.10.0",
     "jest": "^29.7.0",
-    "@types/jest": "^29.5.0"
+    "@types/jest": "^29.5.0",
+    "husky": "^8.0.3"
+  },
+  "optionalDependencies": {
+    "@langchain/core": "^0.2.0",
+    "@langchain/langgraph": "^0.1.0",
+    "typescript": "^5.3.0",
+    "@types/node": "^20.10.0"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/spec-mas.git"
   }
 }
