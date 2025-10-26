@@ -1,70 +1,63 @@
 import {
   Entity,
-  PrimaryGeneratedColumn,
   Column,
+  PrimaryGeneratedColumn,
   CreateDateColumn,
   UpdateDateColumn,
   OneToMany,
-  Index,
 } from "typeorm";
 import { Item } from "./item.entity";
 
 @Entity("persons")
 export class Person {
   @PrimaryGeneratedColumn("uuid")
-  id: string;
+  id!: string;
 
-  @Column({
-    type: "varchar",
-    length: 100,
-    nullable: false,
-  })
-  @Index("idx_persons_name")
-  name: string;
+  @Column({ length: 100, nullable: false })
+  name!: string;
 
-  @Column({
-    type: "varchar",
-    length: 255,
-    nullable: true,
-    unique: true,
-  })
-  @Index("idx_persons_email", { unique: true, where: "email IS NOT NULL" })
-  email: string | null;
+  @Column({ length: 255, nullable: true, unique: true })
+  email?: string;
 
-  @Column({
-    type: "varchar",
-    length: 50,
-    nullable: true,
-  })
-  @Index("idx_persons_slack", {
-    unique: true,
-    where: "slack_user_id IS NOT NULL",
-  })
-  slackUserId: string | null;
+  @Column({ length: 50, nullable: true })
+  slack_user_id?: string;
 
-  @Column({
-    type: "varchar",
-    length: 50,
-    nullable: true,
-  })
-  @Index("idx_persons_zoom", {
-    unique: true,
-    where: "zoom_user_id IS NOT NULL",
-  })
-  zoomUserId: string | null;
+  @Column({ length: 50, nullable: true })
+  zoom_user_id?: string;
 
-  @CreateDateColumn({
-    type: "timestamp with time zone",
-    nullable: false,
-  })
-  createdAt: Date;
+  @CreateDateColumn({ name: "created_at", type: "timestamp with time zone" })
+  createdAt!: Date;
 
-  @UpdateDateColumn({
-    type: "timestamp with time zone",
-    nullable: false,
-  })
-  updatedAt: Date;
+  @UpdateDateColumn({ name: "updated_at", type: "timestamp with time zone" })
+  updatedAt!: Date;
 
   @OneToMany(() => Item, (item) => item.responsiblePerson)
-  items: Item[];
+  items!: Item[];
+
+  validate(): boolean {
+    if (!this.name?.trim()) {
+      throw new Error("Name is required");
+    }
+
+    if (this.name.length > 100) {
+      throw new Error("Name must be 100 characters or less");
+    }
+
+    if (!this.email && !this.slack_user_id && !this.zoom_user_id) {
+      throw new Error(
+        "At least one identifier (email, slack_user_id, or zoom_user_id) must be provided",
+      );
+    }
+
+    if (this.email && !this.validateEmail(this.email)) {
+      throw new Error("Invalid email format");
+    }
+
+    return true;
+  }
+
+  private validateEmail(email: string): boolean {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return emailRegex.test(email);
+  }
 }

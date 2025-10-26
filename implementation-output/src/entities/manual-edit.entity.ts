@@ -1,50 +1,49 @@
 import {
   Entity,
-  PrimaryGeneratedColumn,
   Column,
-  CreateDateColumn,
+  PrimaryGeneratedColumn,
   ManyToOne,
   JoinColumn,
-  Index,
+  CreateDateColumn,
 } from "typeorm";
 import { Item } from "./item.entity";
 
 @Entity("manual_edits")
 export class ManualEdit {
   @PrimaryGeneratedColumn("uuid")
-  id: string;
+  id!: string;
 
-  @Column({ type: "uuid", nullable: false })
-  @Index("idx_manual_edits_item")
-  itemId: string;
+  @ManyToOne(() => Item, (item) => item.manualEdits, { nullable: false })
+  @JoinColumn({ name: "item_id" })
+  item!: Item;
 
-  @Column({
-    type: "varchar",
-    length: 100,
-    nullable: false,
-  })
-  fieldName: string;
+  @Column({ name: "item_id", nullable: false })
+  itemId!: string;
 
-  @Column({
-    type: "jsonb",
-    nullable: false,
-  })
-  oldValue: string;
+  @Column({ name: "field_name", length: 50, nullable: false })
+  fieldName!: string;
 
-  @Column({
-    type: "jsonb",
-    nullable: false,
-  })
-  newValue: string;
+  @Column({ name: "old_value", type: "text", nullable: false })
+  oldValue!: string;
 
-  @CreateDateColumn({
-    type: "timestamp with time zone",
-    nullable: false,
-    name: "edited_at",
-  })
-  editedAt: Date;
+  @Column({ name: "new_value", type: "text", nullable: false })
+  newValue!: string;
 
-  @ManyToOne(() => Item, (item) => item.manualEdits, { onDelete: "CASCADE" })
-  @JoinColumn({ name: "itemId" })
-  item: Item;
+  @CreateDateColumn({ name: "edited_at", type: "timestamp with time zone" })
+  editedAt!: Date;
+
+  validate(): boolean {
+    if (!this.fieldName?.trim()) {
+      throw new Error("Field name is required");
+    }
+
+    try {
+      JSON.parse(this.oldValue);
+      JSON.parse(this.newValue);
+    } catch (e) {
+      throw new Error("Old and new values must be valid JSON");
+    }
+
+    return true;
+  }
 }

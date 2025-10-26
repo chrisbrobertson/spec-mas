@@ -1,188 +1,184 @@
 import {
   Entity,
-  PrimaryGeneratedColumn,
   Column,
+  PrimaryGeneratedColumn,
+  ManyToOne,
+  OneToMany,
+  JoinColumn,
   CreateDateColumn,
   UpdateDateColumn,
-  ManyToOne,
-  JoinColumn,
-  OneToMany,
-  Check,
   Index,
+  Check,
 } from "typeorm";
 import { Person } from "./person.entity";
+import { Relationship } from "./relationship.entity";
 import { ManualEdit } from "./manual-edit.entity";
 import { LearningFeedback } from "./learning-feedback.entity";
-import { Relationship } from "./relationship.entity";
 
 export type ItemType = "ask" | "commitment" | "action";
-export type ItemPriority = "low" | "medium" | "high";
-export type ItemPrioritySource = "ai" | "manual";
-export type ItemStatus = "pending" | "in_progress" | "completed" | "cancelled";
+export type Priority = "low" | "medium" | "high";
+export type PrioritySource = "ai" | "manual";
+export type Status = "pending" | "in_progress" | "completed" | "cancelled";
 export type SourceType = "email" | "slack" | "zoom";
 
 @Entity("items")
-@Index("idx_items_source", ["sourceType", "sourceId"], { unique: true })
-@Index("idx_items_priority", ["priority", "prioritySource"])
-@Index("idx_items_status", ["status"])
-@Index("idx_items_flagged", ["flaggedForFollowup"])
-@Index("idx_items_archived", ["archived"])
-@Check(`"confidenceScore" >= 0 AND "confidenceScore" <= 1`)
-@Check(`"status" IN ('pending', 'in_progress', 'completed', 'cancelled')`)
-@Check(`"priority" IN ('low', 'medium', 'high')`)
-@Check(`"prioritySource" IN ('ai', 'manual')`)
-@Check(`"type" IN ('ask', 'commitment', 'action')`)
+@Index(["sourceType", "sourceId"], { unique: true })
 export class Item {
   @PrimaryGeneratedColumn("uuid")
-  id: string;
+  id!: string;
 
   @Column({
     type: "enum",
     enum: ["ask", "commitment", "action"],
     nullable: false,
   })
-  type: ItemType;
+  type!: ItemType;
 
-  @Column({
-    type: "varchar",
-    length: 200,
-    nullable: false,
-  })
-  @Index("idx_items_title")
-  title: string;
+  @Column({ length: 200, nullable: false })
+  title!: string;
 
-  @Column({
-    type: "varchar",
-    length: 2000,
-    nullable: false,
-  })
-  description: string;
+  @Column({ length: 2000, nullable: false })
+  description!: string;
 
   @Column({
     type: "enum",
     enum: ["low", "medium", "high"],
     nullable: false,
   })
-  priority: ItemPriority;
+  priority!: Priority;
 
   @Column({
+    name: "priority_source",
     type: "enum",
     enum: ["ai", "manual"],
-    nullable: false,
     default: "ai",
   })
-  prioritySource: ItemPrioritySource;
+  prioritySource!: PrioritySource;
 
   @Column({
     type: "enum",
     enum: ["pending", "in_progress", "completed", "cancelled"],
-    nullable: false,
     default: "pending",
   })
-  status: ItemStatus;
+  status!: Status;
 
-  @Column({ type: "uuid", nullable: false })
-  responsiblePersonId: string;
+  @ManyToOne(() => Person, (person) => person.items, { nullable: false })
+  @JoinColumn({ name: "responsible_person_id" })
+  responsiblePerson!: Person;
 
-  @ManyToOne(() => Person, (person) => person.items, { onDelete: "RESTRICT" })
-  @JoinColumn({ name: "responsiblePersonId" })
-  responsiblePerson: Person;
+  @Column({ name: "responsible_person_id", nullable: false })
+  responsiblePersonId!: string;
 
   @Column({
+    name: "confidence_score",
     type: "decimal",
     precision: 3,
     scale: 2,
     nullable: false,
   })
-  confidenceScore: number;
+  @Check("confidence_score >= 0 AND confidence_score <= 1")
+  confidenceScore!: number;
 
   @Column({
+    name: "source_type",
     type: "enum",
     enum: ["email", "slack", "zoom"],
     nullable: false,
   })
-  sourceType: SourceType;
+  sourceType!: SourceType;
+
+  @Column({ name: "source_id", length: 255, nullable: false })
+  sourceId!: string;
+
+  @Column({ name: "source_url", length: 1000, nullable: true })
+  sourceUrl?: string;
+
+  @CreateDateColumn({ name: "created_at", type: "timestamp with time zone" })
+  createdAt!: Date;
+
+  @UpdateDateColumn({ name: "updated_at", type: "timestamp with time zone" })
+  updatedAt!: Date;
 
   @Column({
-    type: "varchar",
-    length: 255,
-    nullable: false,
-  })
-  sourceId: string;
-
-  @Column({
-    type: "varchar",
-    length: 2048,
-    nullable: true,
-  })
-  sourceUrl: string | null;
-
-  @Column({
+    name: "due_date",
     type: "timestamp with time zone",
     nullable: true,
   })
-  dueDate: Date | null;
+  dueDate?: Date;
 
   @Column({
+    name: "completed_at",
     type: "timestamp with time zone",
     nullable: true,
   })
-  completedAt: Date | null;
+  completedAt?: Date;
+
+  @Column({ name: "flagged_for_followup", type: "boolean", default: false })
+  flaggedForFollowup!: boolean;
 
   @Column({
-    type: "boolean",
-    default: false,
-    nullable: false,
-  })
-  flaggedForFollowup: boolean;
-
-  @Column({
+    name: "flagged_at",
     type: "timestamp with time zone",
     nullable: true,
   })
-  flaggedAt: Date | null;
+  flaggedAt?: Date;
+
+  @Column({ type: "boolean", default: false })
+  archived!: boolean;
 
   @Column({
-    type: "boolean",
-    default: false,
-    nullable: false,
-  })
-  archived: boolean;
-
-  @Column({
+    name: "archived_at",
     type: "timestamp with time zone",
     nullable: true,
   })
-  archivedAt: Date | null;
+  archivedAt?: Date;
 
-  @Column({
-    type: "boolean",
-    default: false,
-    nullable: false,
-  })
-  historicalImport: boolean;
-
-  @CreateDateColumn({
-    type: "timestamp with time zone",
-    nullable: false,
-  })
-  createdAt: Date;
-
-  @UpdateDateColumn({
-    type: "timestamp with time zone",
-    nullable: false,
-  })
-  updatedAt: Date;
-
-  @OneToMany(() => ManualEdit, (edit) => edit.item)
-  manualEdits: ManualEdit[];
-
-  @OneToMany(() => LearningFeedback, (feedback) => feedback.item)
-  learningFeedback: LearningFeedback[];
+  @Column({ name: "historical_import", type: "boolean", default: false })
+  historicalImport!: boolean;
 
   @OneToMany(() => Relationship, (relationship) => relationship.parentItem)
-  childRelationships: Relationship[];
+  childRelationships!: Relationship[];
 
   @OneToMany(() => Relationship, (relationship) => relationship.childItem)
-  parentRelationships: Relationship[];
+  parentRelationships!: Relationship[];
+
+  @OneToMany(() => ManualEdit, (manualEdit) => manualEdit.item)
+  manualEdits!: ManualEdit[];
+
+  @OneToMany(() => LearningFeedback, (feedback) => feedback.item)
+  learningFeedback!: LearningFeedback[];
+
+  validate(): boolean {
+    if (!this.title?.trim() || this.title.length > 200) {
+      throw new Error("Title is required and must be 200 characters or less");
+    }
+
+    if (!this.description?.trim() || this.description.length > 2000) {
+      throw new Error(
+        "Description is required and must be 2000 characters or less",
+      );
+    }
+
+    if (this.confidenceScore < 0 || this.confidenceScore > 1) {
+      throw new Error("Confidence score must be between 0 and 1");
+    }
+
+    if (!this.sourceId?.trim()) {
+      throw new Error("Source ID is required");
+    }
+
+    if (this.dueDate && this.dueDate <= new Date()) {
+      throw new Error("Due date must be in the future");
+    }
+
+    if (this.status === "completed" && !this.completedAt) {
+      throw new Error("Completed items must have a completed_at timestamp");
+    }
+
+    if (this.status !== "completed" && this.completedAt) {
+      throw new Error("Only completed items can have a completed_at timestamp");
+    }
+
+    return true;
+  }
 }
