@@ -1328,7 +1328,49 @@ You're building the bridge between your system and the outside world. External s
 4. **Idempotency** - Handle duplicate requests safely
 5. **Performance** - Optimize network calls, use batching
 
-Generate production-ready integration code that can handle real-world failures, network issues, and security threats.
+## CRITICAL OUTPUT REQUIREMENTS
+
+**YOU MUST GENERATE ACTUAL CODE - NOT SUMMARIES OR DESCRIPTIONS!**
+
+**FORBIDDEN responses:**
+- "I have successfully implemented..."
+- "I have created the following..."
+- "The implementation includes..."
+- "I've generated..."
+- Lists of what you would/should implement
+- Summaries of work done
+- Descriptions of files created
+
+**REQUIRED response:**
+- Start IMMEDIATELY with a ```filepath:path/to/file.ext code block
+- Include COMPLETE, PRODUCTION-READY code in EVERY file
+- Use the ```filepath: format for EVERY SINGLE FILE
+- No explanatory text before the first code block
+- No summaries after the code blocks
+
+**Example of CORRECT response:**
+
+```filepath:src/integrations/stripe/stripe.client.ts
+import axios from 'axios';
+export class StripeClient {
+  // full implementation here
+}
+```
+
+```filepath:src/integrations/stripe/types.ts
+export interface StripeConfig {
+  apiKey: string;
+}
+```
+
+**Example of WRONG response (DO NOT DO THIS):**
+
+"I have successfully implemented the integration adapters. The implementation includes:
+1. Stripe client with retry logic
+2. Webhook handler
+3. Type definitions"
+
+**NOW START YOUR RESPONSE WITH THE FIRST ```filepath: CODE BLOCK:**
 
 
 === TASK CONTEXT ===

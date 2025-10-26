@@ -1,0 +1,221 @@
+import { AuthConfig, AuthToken, AuthError, TokenType } from "./types";
+import { KeychainService } from "../keychain/keychain.service";
+import { logger } from "../../utils/logger";
+import { CircuitBreaker } from "opossum";
+import msal from "@azure/msal-node";
+import { v4 as uuidv4 } from "uuid";
+
+export class AuthService {
+  private keychainService: KeychainService;
+  private circuitBreaker: CircuitBreaker;
+  private msalClient?: msal.ConfidentialClientApplication;
+
+  constructor() {
+    this.keychainService = new KeychainService();
+
+    // Configure circuit breaker for token refresh operations
+    this.circuitBreaker = new CircuitBreaker(
+      async (token: AuthToken) => this.refreshTokenInternal(token),
+      {
+        timeout: 10000, // 10 second timeout
+        errorThresholdPercentage: 50,
+        resetTimeout: 30000, // 30 second reset
+      },
+    );
+
+    // Circuit breaker event handlers
+    this.circuitBreaker.on("open", () => {
+      logger.error("Auth circuit breaker opened - token refresh failing");
+    });
+
+    this.circuitBreaker.on("halfOpen", () => {
+      logger.info("Auth circuit breaker half-open - attempting reset");
+    });
+
+    this.circuitBreaker.on("close", () => {
+      logger.info("Auth circuit breaker closed - token refresh recovered");
+    });
+  }
+
+  /**
+   * Initialize MSAL client for OAuth flows
+   */
+  private initializeMsal(config: AuthConfig) {
+    if (!config.clientId || !config.clientSecret || !config.tenantId) {
+      throw new Error("Missing required MSAL configuration");
+    }
+
+    const msalConfig = {
+      auth: {
+        clientId: config.clientId,
+        clientSecret: config.clientSecret,
+        authority: `https://login.microsoftonline.com/${config.tenantId}`,
+      },
+    };
+
+    this.msalClient = new msal.ConfidentialClientApplication(msalConfig);
+  }
+
+  /**
+   * Store authentication token securely
+   */
+  async storeToken(serviceId: string, token: AuthToken): Promise<void> {
+    try {
+      const key = `auth_token_${serviceId}`;
+      await this.keychainService.setSecret(key, JSON.stringify(token));
+      logger.info("Stored auth token successfully", { serviceId });
+    } catch (error) {
+      logger.error("Failed to store auth token", { serviceId, error });
+      throw new Error("Failed to store authentication token");
+    }
+  }
+
+  /**
+   * Retrieve authentication token
+   */
+  async getToken(serviceId: string): Promise<AuthToken | null> {
+    try {
+      const key = `auth_token_${serviceId}`;
+      const tokenStr = await this.keychainService.getSecret(key);
+
+      if (!tokenStr) {
+        return null;
+      }
+
+      const token = JSON.parse(tokenStr) as AuthToken;
+
+      // Check if token is expired or will expire soon (5 min buffer)
+      if (
+        token.expiresAt &&
+        new Date(token.expiresAt) < new Date(Date.now() + 300000)
+      ) {
+        return await this.refreshToken(serviceId, token);
+      }
+
+      return token;
+    } catch (error) {
+      logger.error("Failed to retrieve auth token", { serviceId, error });
+      return null;
+    }
+  }
+
+  /**
+   * Refresh an expired token
+   */
+  private async refreshToken(
+    serviceId: string,
+    token: AuthToken,
+  ): Promise<AuthToken> {
+    try {
+      const newToken = await this.circuitBreaker.fire(token);
+      await this.storeToken(serviceId, newToken);
+      return newToken;
+    } catch (error) {
+      logger.error("Token refresh failed", { serviceId, error });
+      throw new Error("Failed to refresh authentication token");
+    }
+  }
+
+  /**
+   * Internal token refresh logic
+   */
+  private async refreshTokenInternal(token: AuthToken): Promise<AuthToken> {
+    if (!token.refreshToken) {
+      throw new Error("No refresh token available");
+    }
+
+    switch (token.type) {
+      case "oauth":
+        // Implement OAuth refresh flow
+        throw new Error("OAuth refresh not implemented");
+
+      case "msal":
+        if (!this.msalClient) {
+          throw new Error("MSAL client not initialized");
+        }
+
+        const result = await this.msalClient.acquireTokenByRefreshToken({
+          refreshToken: token.refreshToken,
+          scopes: ["https://graph.microsoft.com/.default"],
+        });
+
+        if (!result) {
+          throw new Error("Failed to refresh MSAL token");
+        }
+
+        return {
+          token: result.accessToken,
+          type: "msal",
+          expiresAt: new Date(Date.now() + (result.expiresIn || 3600) * 1000),
+          refreshToken: result.refreshToken,
+        };
+
+      default:
+        throw new Error(`Unsupported token type: ${token.type}`);
+    }
+  }
+
+  /**
+   * Remove stored token
+   */
+  async removeToken(serviceId: string): Promise<void> {
+    try {
+      const key = `auth_token_${serviceId}`;
+      await this.keychainService.deleteSecret(key);
+      logger.info("Removed auth token successfully", { serviceId });
+    } catch (error) {
+      logger.error("Failed to remove auth token", { serviceId, error });
+      throw new Error("Failed to remove authentication token");
+    }
+  }
+
+  /**
+   * Generate a new API key
+   */
+  async generateApiKey(): Promise<string> {
+    return uuidv4().replace(/-/g, "");
+  }
+
+  /**
+   * Validate API key format
+   */
+  validateApiKey(apiKey: string): boolean {
+    return /^[a-f0-9]{32}$/.test(apiKey);
+  }
+
+  /**
+   * Exchange OAuth code for tokens
+   */
+  async exchangeCodeForTokens(
+    code: string,
+    config: AuthConfig,
+  ): Promise<AuthToken> {
+    if (!this.msalClient) {
+      this.initializeMsal(config);
+    }
+
+    try {
+      const result = await this.msalClient!.acquireTokenByCode({
+        code,
+        scopes: config.scopes || [],
+        redirectUri: config.redirectUri,
+      });
+
+      if (!result) {
+        throw new Error("Failed to exchange code for tokens");
+      }
+
+      const token: AuthToken = {
+        token: result.accessToken,
+        type: "msal",
+        expiresAt: new Date(Date.now() + (result.expiresIn || 3600) * 1000),
+        refreshToken: result.refreshToken,
+      };
+
+      return token;
+    } catch (error) {
+      logger.error("Failed to exchange code for tokens", { error });
+      throw new Error("Failed to exchange authorization code");
+    }
+  }
+}
