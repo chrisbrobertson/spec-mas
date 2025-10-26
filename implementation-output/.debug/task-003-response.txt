@@ -1,0 +1,160 @@
+Let me help implement 3 key API endpoints based on the executive assistant spec. I'll start by implementing the health check endpoint and two core monitoring endpoints.
+
+```filepath:src/routes/health.routes.ts
+import express, { Router } from 'express';
+import { HealthController } from '../controllers/health.controller';
+import { logger } from '../utils/logger';
+import { rateLimit } from '../middleware/rate-limiter.middleware';
+
+const router: Router = express.Router();
+const healthController = new HealthController();
+
+router.get('/health', 
+  rateLimit({ max: 120, windowMs: 60000 }), // 120 requests per minute
+  async (req, res) => {
+    try {
+      const healthStatus = await healthController.getHealthStatus();
+      
+      if (healthStatus.status === 'UP' || healthStatus.status === 'DEGRADED') {
+        res.status(200).json(healthStatus);
+      } else {
+        res.status(503).json(healthStatus);
+      }
+      
+      logger.info('Health check executed', { 
+        status: healthStatus.status,
+        timestamp: healthStatus.timestamp
+      });
+    } catch (error) {
+      logger.error('Health check failed', { error });
+      res.status(500).json({
+        status: 'DOWN',
+        timestamp: new Date().toISOString(),
+        error: 'Health check failed'
+      });
+    }
+});
+
+export default router;
+```
+
+```filepath:src/controllers/health.controller.ts
+import { DatabaseService } from '../services/database.service';
+import { MonitoringService } from '../services/monitoring.service';
+import { AppError } from '../utils/errors';
+import { logger } from '../utils/logger';
+
+export class HealthController {
+  private dbService: DatabaseService;
+  private monitoringService: MonitoringService;
+
+  constructor() {
+    this.dbService = new DatabaseService();
+    this.monitoringService = new MonitoringService();
+  }
+
+  async getHealthStatus() {
+    try {
+      // Check database connection
+      const dbStatus = await this.dbService.checkConnection();
+      
+      // Check monitoring services
+      const serviceStatus = await this.monitoringService.getComponentStatus();
+
+      // Aggregate component statuses
+      const allComponents = {
+        database: dbStatus ? 'UP' : 'DOWN',
+        email_monitor: serviceStatus.emailMonitor,
+        slack_monitor: serviceStatus.slackMonitor,
+        zoom_monitor: serviceStatus.zoomMonitor,
+        ai_workers: serviceStatus.aiWorkers
+      };
+
+      // Calculate overall status
+      const hasDown = Object.values(allComponents).includes('DOWN');
+      const hasDegraded = Object.values(allComponents).includes('DEGRADED');
+      const status = hasDown ? 'DOWN' : hasDegraded ? 'DEGRADED' : 'UP';
+
+      // Get any error messages
+      const errors = Object.entries(serviceStatus.errors).map(([component, error]) => 
+        `${component}: ${error}`
+      );
+
+      return {
+        status,
+        timestamp: new Date().toISOString(),
+        components: allComponents,
+        version: process.env.APP_VERSION || '1.0.0',
+        ...(errors.length > 0 && { errors })
+      };
+    } catch (error) {
+      logger.error('Failed to check health status', { error });
+      throw new AppError('Health check failed', 500);
+    }
+  }
+}
+```
+
+```filepath:src/routes/monitoring.routes.ts
+import express, { Router } from 'express';
+import { body, validationResult } from 'express-validator';
+import { MonitoringController } from '../controllers/monitoring.controller';
+import { rateLimit } from '../middleware/rate-limiter.middleware';
+import { AppError } from '../utils/errors';
+import { logger } from '../utils/logger';
+
+const router: Router = express.Router();
+const monitoringController = new MonitoringController();
+
+// Get monitoring service status
+router.get('/monitoring/services',
+  rateLimit({ max: 60, windowMs: 60000 }), // 60 requests per minute
+  async (req, res, next) => {
+    try {
+      const serviceStatus = await monitoringController.getServicesStatus();
+      
+      logger.info('Retrieved monitoring service status');
+      
+      res.status(200).json({
+        success: true,
+        data: serviceStatus
+      });
+    } catch (error) {
+      next(error);
+    }
+});
+
+// Toggle monitoring service
+router.post('/monitoring/services/:service/toggle',
+  rateLimit({ max: 10, windowMs: 60000 }), // 10 requests per minute
+  [
+    body('enabled')
+      .isBoolean()
+      .withMessage('enabled must be a boolean value'),
+  ],
+  async (req, res, next) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        throw new AppError('Validation failed', 400, errors.array());
+      }
+
+      const { service } = req.params;
+      const { enabled } = req.body;
+
+      const result = await monitoringController.toggleService(service, enabled);
+
+      logger.info('Toggled monitoring service', {
+        service,
+        enabled,
+        success: result.success
+      });
+
+      res.status(200).json(result);
+    } catch (error) {
+      next(error);
+    }
+});
+
+export default router;
+```
