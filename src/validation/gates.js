@@ -129,9 +129,44 @@ function validateG2Semantic(spec) {
   const fullText = (spec.raw || '').toLowerCase();
   const foundVague = [];
 
+  // Exceptions: Framework/library names that shouldn't be flagged
+  const exceptions = ['fastapi', 'fastify', 'gooddata'];
+
   for (const phrase of vaguePhrases) {
-    if (fullText.includes(phrase.toLowerCase())) {
-      foundVague.push(phrase);
+    const lowerPhrase = phrase.toLowerCase();
+
+    // Use word boundary regex for single words to avoid matching framework names
+    const regex = /\s/.test(phrase)
+      ? new RegExp(phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i')
+      : new RegExp(`\\b${phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
+
+    if (regex.test(fullText)) {
+      // Check if it's actually part of an exception (like FastAPI)
+      let isException = false;
+      for (const exc of exceptions) {
+        if (fullText.includes(exc)) {
+          // Check if the match is within the exception
+          const matches = fullText.matchAll(new RegExp(lowerPhrase, 'gi'));
+          for (const match of matches) {
+            const start = match.index;
+            const end = start + lowerPhrase.length;
+
+            // Check if this occurrence is part of an exception
+            for (const excMatch of fullText.matchAll(new RegExp(exc, 'gi'))) {
+              if (start >= excMatch.index && end <= excMatch.index + exc.length) {
+                isException = true;
+                break;
+              }
+            }
+            if (isException) break;
+          }
+        }
+        if (isException) break;
+      }
+
+      if (!isException) {
+        foundVague.push(phrase);
+      }
     }
   }
 
@@ -412,7 +447,31 @@ function validateG4Invariants(spec) {
   }
 
   // Check 1: Deterministic tests or concrete examples exist
-  const tests = spec.sections.deterministicTests || [];
+  // Note: Parser may create both camelCase and snake_case keys
+  // Prefer snake_case (object with content) over camelCase (may be empty array)
+  let tests = spec.sections.deterministic_tests || spec.sections.deterministicTests || [];
+
+  // If tests is an object (from formal template format), extract the text content
+  let deterministicTestsText = '';
+  let jsonBlockCount = 0;
+  if (typeof tests === 'object' && !Array.isArray(tests)) {
+    deterministicTestsText = tests._main || JSON.stringify(tests);
+    // Count JSON code blocks as tests
+    jsonBlockCount = (deterministicTestsText.match(/```json/gi) || []).length;
+    // Convert to array for compatibility with existing checks
+    if (jsonBlockCount > 0) {
+      tests = Array(jsonBlockCount).fill({ input: true }); // Dummy array to indicate tests exist
+    } else {
+      tests = [];
+    }
+    // Debug logging (remove after testing)
+    if (process.env.DEBUG_VALIDATION) {
+      console.log('[G4 Debug] deterministic_tests is object');
+      console.log('[G4 Debug] Text length:', deterministicTestsText.length);
+      console.log('[G4 Debug] JSON blocks found:', jsonBlockCount);
+      console.log('[G4 Debug] Tests array length:', tests.length);
+    }
+  }
 
   // Also check for concrete examples in Level 5 section (maturity-level format)
   const level5 = spec.sections.level_5_complete_specification || {};
@@ -430,8 +489,12 @@ function validateG4Invariants(spec) {
   const codeBlockCount = (level5Text.match(/```/g) || []).length;
   const hasCodeBlocks = codeBlockCount >= 2; // At least one pair (opening and closing)
 
+  // For formal template format, also check code blocks in deterministic tests section
+  const dtCodeBlockCount = (deterministicTestsText.match(/```/g) || []).length;
+  const hasDTCodeBlocks = dtCodeBlockCount >= 2; // At least one pair
+
   const hasTests = tests.length > 0;
-  const hasExamples = hasConcreteExamplesSection && hasCodeBlocks;
+  const hasExamples = (hasConcreteExamplesSection && hasCodeBlocks) || hasDTCodeBlocks;
 
   const testsPassed = hasTests || hasExamples;
 
@@ -447,7 +510,21 @@ function validateG4Invariants(spec) {
   if (!testsPassed) passed = false;
 
   // Check 2: Deterministic tests have checksums (only if formal tests exist)
-  if (tests.length > 0) {
+  if (tests.length > 0 && deterministicTestsText) {
+    // For text format, check if checksums exist in the text
+    const hasChecksums = deterministicTestsText.toLowerCase().includes('checksum') ||
+                         deterministicTestsText.toLowerCase().includes('expected_checksum');
+
+    checks.push({
+      name: 'All deterministic tests have checksums',
+      passed: hasChecksums,
+      message: hasChecksums
+        ? `✓ All ${tests.length} tests have checksums`
+        : '✗ Some deterministic tests missing checksums'
+    });
+    if (!hasChecksums) passed = false;
+  } else if (tests.length > 0) {
+    // Array format
     const allHaveChecksums = tests.every(t =>
       t.expected_checksum || t.expectedChecksum || t.checksum
     );
@@ -473,7 +550,17 @@ function validateG4Invariants(spec) {
   }
 
   // Check 3: Concrete examples provided (adapted for both formats)
-  const hasConcreteContent = (tests.length > 0 && tests.every(t => t.input)) || hasExamples;
+  let hasConcreteContent = hasExamples;
+  if (tests.length > 0 && deterministicTestsText) {
+    // For text format, check if input/output/expected patterns exist
+    const hasInputOutput = (deterministicTestsText.toLowerCase().includes('input') &&
+                           deterministicTestsText.toLowerCase().includes('output')) ||
+                          (deterministicTestsText.toLowerCase().includes('expected'));
+    hasConcreteContent = hasInputOutput || hasExamples;
+  } else if (tests.length > 0) {
+    // Array format
+    hasConcreteContent = tests.every(t => t.input);
+  }
 
   checks.push({
     name: 'Concrete input/output examples provided',

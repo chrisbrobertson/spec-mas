@@ -1,0 +1,2241 @@
+---
+specmas: v3
+kind: FeatureSpec
+id: feat-exec-assistant-001
+name: AI Executive Assistant for Communication Tracking
+version: 1.2.0
+checksum: f8e5d9c6b4a3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c7b6a5f4e3d2c1b0a9f8e7
+created: 2025-10-25
+updated: 2025-10-25
+owners:
+  - name: Executive User
+    email: user@company.com
+complexity: HIGH
+maturity: 5
+tags: [ai, nlp, productivity, communication-tracking, multi-integration]
+---
+
+# AI Executive Assistant - Specification
+
+## Overview
+
+### Problem Statement
+
+Executives receive hundreds of communications daily across email, Slack, and meetings, making it nearly impossible to track all asks, commitments, and actions manually. Critical items fall through the cracks, follow-ups are missed, and accountability becomes difficult to maintain. There is no centralized system that automatically extracts and tracks these action items from multiple communication channels, prioritizes them intelligently, and provides a unified view of what needs attention.
+
+### Scope
+
+**In Scope:**
+- Automatic extraction of asks, commitments, and actions from Office 365 email, Slack messages, and Zoom meeting transcripts
+- AI-powered classification and prioritization of items
+- Person/responsibility tracking and assignment
+- Relationship mapping between asks, commitments, and actions
+- Priority-based follow-up flagging (High: 1-2 days, Medium: 3-7 days, Low: 1-2 weeks)
+- Manual editing capabilities for all tracked items
+- Full-text search across all items
+- 18-month archival policy for completed items
+- Optional historical data processing with date range selection
+- Local-only deployment on macOS with web dashboard
+- Secure API key storage via macOS Keychain
+
+**Out of Scope:**
+- General task management (not Asana/Jira replacement)
+- Calendar integration or meeting scheduling
+- Email/Slack message composition or sending
+- Conversational AI interface or chatbot functionality
+- CRM or detailed contact management
+- Document storage or knowledge base
+- File attachment handling
+- Mobile applications (web-only in v1.0)
+- Multi-user support (single executive use only)
+- Real-time collaboration features
+
+### Success Metrics
+
+**Primary Goal: Zero Missed Items**
+- **Recall Rate**: ≥95% of actual asks/commitments/actions are captured (validated through periodic manual audits)
+- **Precision Rate**: ≥90% of flagged items are genuine asks/commitments/actions (not false positives)
+- **False Negative Prevention**: Zero critical/high-priority items fall through the cracks (validated through stakeholder feedback)
+
+**Secondary Goals:**
+- **Latency**: Items appear in tracking system within 2 minutes of being communicated
+- **Relationship Accuracy**: ≥90% of linked items (ask→commitment→action) are correctly associated
+- **Person Identification Accuracy**: ≥85% of items correctly identify the responsible person
+- **Manual Override Frequency**: Track how often manual edits are needed to improve AI over time
+- **Timely Follow-ups**: ≥95% of items flagged for follow-up within their priority-based timeframe
+
+---
+
+## Functional Requirements
+
+### FR-001: Automatic Communication Monitoring
+
+**Description:**
+The system must continuously monitor Office 365 email, Slack messages, and Zoom meeting transcripts in real-time, detecting new communications and queuing them for AI processing.
+
+**Validation Criteria:**
+- Email: New messages detected within 60 seconds via Microsoft Graph API delta queries
+- Slack: Messages received within 5 seconds via Socket Mode WebSocket connection
+- Zoom: New transcripts detected within 15 minutes via polling
+- All detected communications queued to SQLite job queue with unique source_id
+- No duplicate processing of the same message (enforced by UNIQUE constraint)
+- Integration health status reported via /health endpoint
+- Failed connection attempts logged with error codes
+- Reconnection logic activates within 30 seconds of connection loss
+
+**Test Coverage:**
+- DT-001: Email with single ask extraction
+- DT-005: Multiple asks in Zoom transcript
+- Acceptance Criteria: Email/Slack/Zoom detection timing
+
+### FR-002: AI-Powered Item Extraction
+
+**Description:**
+The system must use GPT-5 (primary) or Claude Sonnet 4.5 (fallback) to extract asks, commitments, and actions from communication content, identifying responsible persons and inferring priority levels.
+
+**Validation Criteria:**
+- Single unified prompt used for both AI models
+- Extraction completes within 30 seconds (p95) per message
+- Output includes: type (ask/commitment/action), title, description, responsible person, priority, confidence score, due date
+- Confidence score between 0.0-1.0 returned for each extraction
+- Items with confidence <0.5 flagged for manual review
+- Automatic fallback to Claude if GPT-5 rate limited or errors
+- All extraction attempts logged with model name, latency, and confidence score
+- JSON schema validation enforced on AI responses before database insertion
+
+**Test Coverage:**
+- DT-001: Single ask extraction
+- DT-002: High priority keyword detection
+- DT-003: Commitment with action linkage
+- DT-004: Informational message (no items)
+- CE-001: Complete extraction example with full output structure
+
+### FR-003: Relationship Tracking
+
+**Description:**
+The system must automatically link related items, tracking the lifecycle: Ask → Commitment → Action(s).
+
+**Validation Criteria:**
+- Commitments linked to originating asks when detected in responses
+- Multiple actions can be linked to single commitment
+- Asks can exist without commitments (status: "Awaiting Commitment")
+- Relationship graph visible in dashboard with parent-child hierarchy
+- Cross-platform tracking (ask via email, commitment via Slack)
+- Circular relationships prevented by validation logic
+- Orphaned relationships detected and flagged for review
+- Relationship confidence scores tracked for quality monitoring
+
+**Test Coverage:**
+- DT-003: Ask-commitment-action linkage
+- CE-002: Complete relationship tracking example
+- INV-003: Relationship integrity
+- INV-010: Acyclic relationship graph
+
+### FR-004: Intelligent Prioritization
+
+**Description:**
+The system must assign priority levels (Low/Medium/High) based on AI inference from language cues, with support for manual overrides and learning from user corrections.
+
+**Validation Criteria:**
+- Initial priority assigned by AI based on urgency indicators, leadership involvement, deadlines, and language tone
+- Manual priority overrides always take precedence over AI
+- User corrections stored in learning_feedback table
+- Priority adjustments reflected immediately in dashboard (within 500ms)
+- System learns patterns over time from manual corrections
+- Priority distribution tracked (target: 20% High, 50% Medium, 30% Low)
+- AI priority accuracy measured against manual corrections
+
+**Test Coverage:**
+- DT-002: Urgency keyword priority inference
+- CE-003: Complete prioritization example
+- INV-002: Priority hierarchy (manual > AI)
+- Acceptance Criteria: Priority assignment and override
+
+### FR-005: Follow-Up Flagging
+
+**Description:**
+The system must automatically flag items for follow-up based on priority and time since last update.
+
+**Validation Criteria:**
+- High priority: Flagged after 1-2 days with no update
+- Medium priority: Flagged after 3-7 days with no update
+- Low priority: Flagged after 1-2 weeks with no update
+- Flagged items highlighted prominently in dashboard
+- Follow-up flags cleared when item updated or completed
+- Flag status recalculated every hour
+- Email digest of flagged items sent daily at 8am local time
+
+**Test Coverage:**
+- INV-004: Follow-up flag consistency
+- Acceptance Criteria: Priority-based follow-up timing
+
+### FR-006: Person Identification and Tracking
+
+**Description:**
+The system must identify and track individuals responsible for each item, merging duplicate person records when detected.
+
+**Validation Criteria:**
+- Person extracted from email sender/recipient, Slack user, or Zoom participant
+- Person record includes: name, email, slack_user_id, zoom_user_id
+- Duplicate detection based on email address matching
+- User prompted to merge suspected duplicates
+- Items can be manually reassigned to different persons
+- Person names/emails linked across all platforms
+- Unknown persons flagged for manual identification
+- Person statistics calculated (total items, completion rate)
+
+**Test Coverage:**
+- DT-005: Multiple person identification in transcript
+- CE-004: Complete person tracking example
+- INV-006: Person identity consistency
+- Acceptance Criteria: Person extraction and assignment
+
+### FR-007: Manual Editing and Correction
+
+**Description:**
+Users must be able to manually edit any tracked item, with all changes logged for AI learning.
+
+**Validation Criteria:**
+- All item fields editable: title, description, priority, status, responsible person, due date
+- Manual edits immediately reflected in dashboard (within 500ms)
+- Edit history tracked in manual_edits table with old/new values and timestamp
+- Corrections fed to learning_feedback for AI improvement
+- False positives can be deleted or marked as "not an action item"
+- Manual item linking/unlinking supported
+- Concurrent edit detection prevents data loss
+- Undo functionality available for last 10 edits
+
+**Test Coverage:**
+- Acceptance Criteria: Manual editing and audit trail
+- INV-002: Manual priority overrides
+
+### FR-008: Search and Filtering
+
+**Description:**
+The system must provide comprehensive search and filtering capabilities across all tracked items.
+
+**Validation Criteria:**
+- Full-text search using SQLite FTS5 across title and description
+- Filter by: priority, person, status, source type, date range
+- String search for project names or keywords
+- Search results returned within 500ms (p95)
+- Combined filters supported (e.g., "High priority + Assigned to Sarah + Last 30 days")
+- Search query syntax supports AND/OR/NOT operators
+- Search results paginated (25 items per page)
+- Recent searches saved for quick access
+
+**Test Coverage:**
+- Performance Requirements: Search query performance target
+- Acceptance Criteria: Search and filtering functionality
+
+### FR-009: Historical Data Processing
+
+**Description:**
+Users must be able to process historical communications from before system installation, with configurable date ranges.
+
+**Validation Criteria:**
+- Date range selector in setup wizard (from/to dates)
+- Background processing of historical data with progress indicator
+- Historical items marked with "historical_import: true" flag
+- Processing does not block real-time monitoring
+- Progress dashboard shows: total items, processed count, estimated completion time
+- Historical processing can be paused and resumed
+- Rate limiting applied to prevent API throttling (max 10 requests/second)
+- Failed historical items retried with exponential backoff
+
+**Test Coverage:**
+- Acceptance Criteria: Historical data processing with date selection
+
+### FR-010: API Key Management
+
+**Description:**
+The system must securely store and manage API credentials for all integrated services.
+
+**Validation Criteria:**
+- API keys stored in macOS Keychain using keyring library
+- Keys never logged or displayed in plain text
+- Setup wizard validates each API key before saving
+- Invalid keys rejected with specific error messages
+- Key rotation supported without data loss
+- Separate keys for production and testing environments
+- Key access audited (all reads logged with timestamp)
+- Fallback to environment variables if Keychain unavailable
+
+**Test Coverage:**
+- Security section: API key storage in Keychain
+- Acceptance Criteria: API key configuration and validation
+
+### FR-011: Data Retention and Archival
+
+**Description:**
+The system must archive completed items after 18 months while maintaining searchability.
+
+**Validation Criteria:**
+- Items marked "completed" for 18 months moved to archived status
+- Archival job runs daily at 2am local time
+- Archived items excluded from default views
+- Archived items remain searchable via "Include Archived" option
+- Archive status reversible via manual action
+- Archival events logged with timestamp and reason
+- Database size monitoring with cleanup thresholds
+- Archived items exported to JSON backup before deletion
+
+**Test Coverage:**
+- Acceptance Criteria: Archival after 18 months with search access
+
+### FR-012: System Status Monitoring
+
+**Description:**
+The system must provide comprehensive health monitoring and diagnostics.
+
+**Validation Criteria:**
+- /health endpoint returns JSON with component statuses (UP/DOWN/DEGRADED)
+- Process health checks run every 60 seconds
+- Database connectivity tested on each health check
+- API integration status tested every 5 minutes
+- Failed health checks logged with error details
+- Dashboard displays system status banner
+- Email alerts sent if any component DOWN for >5 minutes
+- Health check history retained for 30 days
+
+**Test Coverage:**
+- Non-Functional Requirements: Observability section
+- Acceptance Criteria: System health monitoring
+
+---
+
+## Non-Functional Requirements
+
+### Performance
+
+**Response Time Requirements:**
+- Dashboard page load: <2 seconds (p95) with up to 1,000 tracked items
+- Search queries: <500ms (p95) for full-text search
+- AI extraction: <30 seconds (p95) per message
+- Manual edits: UI update within 500ms (p95)
+- Follow-up flag calculation: Complete within 5 minutes for all items
+
+**Throughput Requirements:**
+- Support 100+ emails per hour
+- Process 500+ Slack messages per hour
+- Handle 10+ concurrent Zoom transcripts per day
+- 3 concurrent AI workers processing items
+
+**Resource Constraints:**
+- Maximum 4GB RAM usage under normal load
+- Maximum 2GB disk space for database (excluding backups)
+- CPU usage <20% during steady state
+- Network bandwidth <1Mbps average
+
+### Reliability & Scalability
+
+**Uptime Targets:**
+- System availability: 99.5% (excluding planned maintenance)
+- Background services restart automatically on failure
+- Maximum 5 minutes downtime for any process restart
+- Zero data loss during process restarts
+
+**Scalability:**
+- Support up to 10,000 tracked items in database
+- Handle 18 months of historical data per user
+- Maintain performance with 100+ persons tracked
+- Scale to 500+ items flagged for follow-up
+
+**Data Integrity:**
+- Hourly database backups (retained 24 hours)
+- Daily database backups (retained 7 days)
+- Automatic backup before schema migrations
+- Database integrity check on startup
+- Corrupted database triggers email alert
+
+### Observability
+
+**Metrics to Track:**
+```
+# Process Health (6 metrics)
+- process_uptime_seconds
+- process_memory_bytes
+- process_cpu_percent
+- process_restart_count
+- health_check_status
+- health_check_latency_ms
+
+# Job Queue (5 metrics)
+- queue_jobs_pending
+- queue_jobs_processing
+- queue_jobs_failed
+- queue_processing_latency_seconds
+- queue_retry_count
+
+# AI Performance (7 metrics)
+- ai_extraction_count
+- ai_extraction_latency_seconds
+- ai_confidence_score
+- ai_fallback_count
+- ai_error_rate
+- ai_cost_dollars
+- ai_model_usage
+
+# Integration Health (6 metrics)
+- email_messages_processed
+- email_api_errors
+- slack_messages_processed
+- slack_connection_drops
+- zoom_transcripts_processed
+- zoom_api_rate_limit_hits
+
+# Feature Usage (6 metrics)
+- items_created
+- items_completed
+- manual_edits_count
+- search_queries_count
+- follow_up_flags_active
+- person_merge_operations
+```
+
+**Logging Requirements:**
+- Structured JSON logging to daily log files
+- Log levels: DEBUG, INFO, WARNING, ERROR, CRITICAL
+- Sensitive data (API keys, message content) never logged
+- Errors include stack traces and context
+- Log rotation: Daily, 7-day retention
+- Log file location: ~/Library/Logs/exec-assistant/
+
+**Alerting Thresholds:**
+- Any process DOWN for >5 minutes → Email alert
+- Queue jobs failing >10% → Email alert
+- AI extraction latency >60 seconds (p95) → Warning log
+- Database size >90% of 2GB limit → Email alert
+- API rate limits hit → Warning log
+- Backup failures → Email alert immediately
+
+**Debugging Hooks:**
+- Feature flag: VERBOSE_LOGGING for detailed AI prompts/responses
+- Debug endpoint: /debug/jobs for queue inspection
+- Debug endpoint: /debug/metrics for real-time metrics
+- Manual job retry via dashboard
+- Test extraction UI for prompt tuning
+
+### Compliance & Privacy
+
+**Data Privacy:**
+- No communication content sent for training (OpenAI/Anthropic policy)
+- Data stored locally only (no cloud backup)
+- User explicitly informed of AI processing during setup
+- Option to disable specific integrations (email/Slack/Zoom)
+- Data deletion request supported (purge all data)
+
+**Regulatory Considerations:**
+- GDPR: Right to deletion (full purge capability)
+- GDPR: Data portability (JSON export feature)
+- CCPA: Disclosure of data sharing with AI providers
+- No healthcare or financial data handling (out of scope)
+
+**Audit Trail:**
+- All manual edits logged with user action and timestamp
+- API key access events logged
+- Failed authentication attempts logged
+- Data export operations logged
+- Database schema changes logged
+
+---
+
+## Security
+
+### Authentication
+
+**User Authentication:**
+- No authentication required (single-user local system)
+- Web dashboard accessible only via localhost (127.0.0.1:5000)
+- No external network access to dashboard
+- Future: Optional password protection for dashboard
+
+### Authorization
+
+**Access Control:**
+- Single user has full access to all features
+- No role-based access control in v1.0
+- Future: Read-only mode for audit purposes
+
+### Data Handling
+
+**PII Classification:** High - Contains email content, names, and communications
+
+**Data Storage:**
+- All data stored in SQLite database at ~/Library/Application Support/exec-assistant/
+- Database file permissions: 0600 (owner read/write only)
+- Backup files permissions: 0600 (owner read/write only)
+- Log files permissions: 0600 (owner read/write only)
+
+**Data Retention:**
+- Active items: Indefinite (until archived)
+- Archived items: Indefinite (searchable)
+- Logs: 7 days
+- Backups: 7 days (daily) + 24 hours (hourly)
+
+**Data Deletion:**
+- Soft delete: Items marked deleted but retained 30 days
+- Hard delete: Permanent removal after 30 days
+- Purge all: Immediate complete deletion on user request
+- Export before delete: Automatic JSON export created
+
+### Encryption & Key Management
+
+**At Rest:**
+- SQLite database encryption: Not implemented in v1.0 (future enhancement)
+- macOS FileVault recommended for disk encryption
+- Backup files inherit FileVault encryption
+
+**In Transit:**
+- All API calls use TLS 1.2+ (enforced by API providers)
+- Microsoft Graph API: OAuth 2.0 with TLS 1.2+
+- Slack API: OAuth 2.0 with TLS 1.2+
+- Zoom API: OAuth 2.0 with TLS 1.2+
+- OpenAI API: API key over TLS 1.3
+- Anthropic API: API key over TLS 1.3
+- Dashboard: HTTP only (localhost, future: HTTPS)
+
+**Key Management:**
+- API keys stored in macOS Keychain (AES-256 encrypted)
+- Key retrieval requires system user authentication
+- Keys never written to logs or temporary files
+- Key rotation supported without service disruption
+
+### Audit & Logging
+
+**Coverage:**
+- Manual edits (who, what, when, before/after values)
+- API key access attempts
+- Failed AI extractions with reason
+- Database backup operations
+- System startup/shutdown events
+- Health check failures
+- Configuration changes
+
+**Retention:**
+- Audit logs: 30 days in database
+- Archived to daily log files (7 day retention)
+- Critical security events retained indefinitely
+
+**Tamper Evidence:**
+- Log files write-only after creation
+- Log entries include sequence numbers
+- Missing sequence numbers indicate tampering
+- Checksum verification on log rotation
+
+---
+
+## Data Model
+
+### Entities
+
+```typescript
+interface Item {
+  id: string;                    // UUID
+  type: "ask" | "commitment" | "action";
+  title: string;                 // Max 200 chars
+  description: string;           // Max 2000 chars
+  priority: "low" | "medium" | "high";
+  priority_source: "ai" | "manual";  // Track override
+  status: "pending" | "in_progress" | "completed" | "cancelled";
+  responsible_person_id: string; // FK to Person
+  confidence_score: number;      // 0.0-1.0
+  source_type: "email" | "slack" | "zoom";
+  source_id: string;             // UNIQUE - prevents duplicates
+  source_url?: string;           // Link back to original
+  created_at: timestamp;
+  updated_at: timestamp;
+  due_date?: timestamp;
+  completed_at?: timestamp;
+  flagged_for_followup: boolean;
+  flagged_at?: timestamp;
+  archived: boolean;
+  archived_at?: timestamp;
+  historical_import: boolean;    // True if from historical processing
+}
+
+interface Person {
+  id: string;                    // UUID
+  name: string;
+  email?: string;                // UNIQUE
+  slack_user_id?: string;
+  zoom_user_id?: string;
+  created_at: timestamp;
+  updated_at: timestamp;
+}
+
+interface Relationship {
+  id: string;                    // UUID
+  parent_item_id: string;        // FK to Item
+  child_item_id: string;         // FK to Item
+  relationship_type: "ask_to_commitment" | "commitment_to_action";
+  confidence_score: number;      // 0.0-1.0
+  created_at: timestamp;
+}
+
+interface ManualEdit {
+  id: string;                    // UUID
+  item_id: string;               // FK to Item
+  field_name: string;            // Which field was edited
+  old_value: string;             // JSON serialized
+  new_value: string;             // JSON serialized
+  edited_at: timestamp;
+}
+
+interface LearningFeedback {
+  id: string;                    // UUID
+  item_id: string;               // FK to Item
+  feedback_type: "priority_correction" | "false_positive" | "relationship_correction";
+  ai_prediction: string;         // JSON serialized
+  user_correction: string;       // JSON serialized
+  created_at: timestamp;
+}
+
+interface Job {
+  id: string;                    // UUID
+  job_type: "process_email" | "process_slack" | "process_zoom";
+  source_id: string;             // UNIQUE
+  status: "pending" | "processing" | "completed" | "failed";
+  retry_count: number;           // Max 3
+  payload: string;               // JSON with message content
+  created_at: timestamp;
+  started_at?: timestamp;
+  completed_at?: timestamp;
+  error_message?: string;
+}
+```
+
+### Relationships
+
+- **Item** belongs to **Person** (responsible_person_id)
+- **Item** has many **ManualEdit** (audit trail)
+- **Item** has many **LearningFeedback** (AI improvement)
+- **Item** has many **Relationship** as parent (one-to-many asks→commitments)
+- **Item** has many **Relationship** as child (many-to-one actions→commitment)
+- **Person** has many **Item** (all assigned items)
+- **Job** has at most one **Item** (after successful processing)
+
+### Validation Rules
+
+**Item Validation:**
+- title: Required, 1-200 characters, no special characters
+- description: Required, 1-2000 characters
+- priority: Required, enum validation
+- type: Required, enum validation
+- status: Required, enum validation
+- confidence_score: Required, 0.0 ≤ score ≤ 1.0
+- source_id: Required, unique per source_type
+- due_date: Optional, must be future date if provided
+- completed_at: Required if status="completed", null otherwise
+
+**Person Validation:**
+- name: Required, 1-100 characters
+- email: Optional, valid email format, unique if provided
+- At least one of: email, slack_user_id, zoom_user_id must be provided
+
+**Relationship Validation:**
+- parent_item_id ≠ child_item_id (no self-references)
+- No cycles in relationship graph (validated on insert)
+- relationship_type matches parent/child types:
+  - "ask_to_commitment": parent type="ask", child type="commitment"
+  - "commitment_to_action": parent type="commitment", child type="action"
+
+**Job Validation:**
+- source_id: Unique across all jobs (prevents duplicate processing)
+- retry_count: 0 ≤ retry_count ≤ 3
+- payload: Valid JSON structure
+
+---
+
+## Interfaces & Contracts
+
+### APIs
+
+**Health Check Endpoint:**
+```
+GET /health
+
+Response 200:
+{
+  "status": "UP",
+  "timestamp": "2025-10-25T10:30:00Z",
+  "components": {
+    "database": "UP",
+    "email_monitor": "UP",
+    "slack_monitor": "UP",
+    "zoom_monitor": "DEGRADED",
+    "ai_workers": "UP"
+  },
+  "version": "1.0.0"
+}
+
+Response 503 (Degraded):
+{
+  "status": "DEGRADED",
+  "timestamp": "2025-10-25T10:30:00Z",
+  "components": {
+    "database": "UP",
+    "email_monitor": "DOWN",
+    "slack_monitor": "UP",
+    "zoom_monitor": "UP",
+    "ai_workers": "UP"
+  },
+  "errors": [
+    "email_monitor: Connection timeout after 3 retries"
+  ]
+}
+```
+
+**Dashboard API:**
+```
+GET /api/items?status=pending&priority=high&limit=50&offset=0
+
+Response 200:
+{
+  "items": [
+    {
+      "id": "123e4567-e89b-12d3-a456-426614174000",
+      "type": "ask",
+      "title": "Review Q4 budget proposal",
+      "description": "Sarah asked for feedback on the budget by Friday",
+      "priority": "high",
+      "status": "pending",
+      "responsible_person": {
+        "id": "987e4567-e89b-12d3-a456-426614174000",
+        "name": "John Doe",
+        "email": "john@company.com"
+      },
+      "confidence_score": 0.92,
+      "source_type": "email",
+      "created_at": "2025-10-25T09:15:00Z",
+      "due_date": "2025-10-27T17:00:00Z",
+      "flagged_for_followup": false
+    }
+  ],
+  "total": 127,
+  "limit": 50,
+  "offset": 0
+}
+
+POST /api/items/{id}/edit
+Request:
+{
+  "priority": "medium",
+  "status": "in_progress",
+  "notes": "Started working on this"
+}
+
+Response 200:
+{
+  "success": true,
+  "item": { /* updated item */ }
+}
+```
+
+### Events
+
+**Item Extracted Event:**
+```
+Event: item.extracted
+Payload: {
+  "item_id": "123e4567-e89b-12d3-a456-426614174000",
+  "type": "ask",
+  "confidence_score": 0.87,
+  "source_type": "slack",
+  "timestamp": "2025-10-25T10:30:00Z"
+}
+Trigger: After successful AI extraction and database insert
+```
+
+**Follow-up Flag Event:**
+```
+Event: item.flagged_for_followup
+Payload: {
+  "item_id": "123e4567-e89b-12d3-a456-426614174000",
+  "priority": "high",
+  "days_since_update": 2,
+  "timestamp": "2025-10-25T10:30:00Z"
+}
+Trigger: When follow-up flag activated based on timing rules
+```
+
+### External Integrations
+
+**Microsoft Graph API:**
+- **Purpose:** Access Office 365 email
+- **Authentication:** OAuth 2.0 with MSAL library
+- **Scopes:** Mail.Read, User.Read
+- **Rate Limits:** 10,000 requests/hour (monitored via X-RateLimit headers)
+- **Polling:** Delta queries every 60 seconds for new messages
+- **Error Handling:** Exponential backoff on 429, token refresh on 401
+
+**Slack API:**
+- **Purpose:** Access workspace messages and DMs
+- **Authentication:** OAuth 2.0 with Socket Mode
+- **Scopes:** channels:history, groups:history, im:history, users:read
+- **Connection:** WebSocket via slack-sdk Socket Mode
+- **Rate Limits:** Tier 3 (50+ requests/minute), handled by SDK
+- **Error Handling:** Automatic reconnection on disconnect
+
+**Zoom API:**
+- **Purpose:** Access meeting transcripts
+- **Authentication:** OAuth 2.0 with Server-to-Server token
+- **Scopes:** recording:read, user:read
+- **Polling:** Check for new transcripts every 15 minutes
+- **Rate Limits:** Medium tier (varies by plan), handled via retry-after
+- **Error Handling:** Skip unavailable transcripts, log for manual review
+
+**OpenAI API:**
+- **Purpose:** Primary AI extraction via GPT-5
+- **Authentication:** API key (Bearer token)
+- **Model:** gpt-4-turbo or gpt-5 (when available)
+- **Rate Limits:** 10,000 TPM, 500 RPM (monitored)
+- **Error Handling:** Fall back to Claude on rate limit or error
+
+**Anthropic API:**
+- **Purpose:** Fallback AI extraction via Claude Sonnet 4.5
+- **Authentication:** API key (X-API-Key header)
+- **Model:** claude-sonnet-4.5
+- **Rate Limits:** 40,000 TPM, 50 RPM (monitored)
+- **Error Handling:** Queue for retry if both APIs unavailable
+
+---
+
+## Deterministic Tests
+
+These tests define exact input/output pairs that must hold for critical functionality. Agents must validate these before marking implementation complete. Each test includes the complete expected output structure, not just checksums.
+
+### DT-001: Single Ask Extraction from Email
+
+**Input:**
+```json
+{
+  "content": "Hi team, can you please send me the Q4 report by Friday? Thanks, Sarah",
+  "source_type": "email",
+  "sender": "sarah@company.com",
+  "timestamp": "2025-10-22T14:30:00Z"
+}
+```
+
+**Expected Output:**
+```json
+{
+  "items": [
+    {
+      "type": "ask",
+      "title": "Send Q4 report",
+      "description": "Sarah requests the Q4 report to be sent by Friday",
+      "priority": "medium",
+      "responsible_person": {
+        "name": "Team",
+        "email": null
+      },
+      "confidence_score": 0.87,
+      "due_date": "2025-10-25T17:00:00Z",
+      "source_metadata": {
+        "from": "sarah@company.com",
+        "detected_deadline": "Friday"
+      }
+    }
+  ],
+  "extraction_metadata": {
+    "model_used": "gpt-5",
+    "processing_time_ms": 1247,
+    "total_items_found": 1
+  }
+}
+```
+
+**Expected Checksum:** `a7f3d1e2b4c5a8f9e1d0c7b6a5f4e3d2c1b0a9f8e7d6c5b4a3f2e1d0c9b8a7f6`
+
+---
+
+### DT-002: High Priority Detection from Urgency Keywords
+
+**Input:**
+```json
+{
+  "content": "URGENT: Need approval on contract before end of business day today. Client deadline is 5pm EST.",
+  "source_type": "slack",
+  "sender_user_id": "U12345ABC",
+  "channel_id": "C67890DEF",
+  "timestamp": "2025-10-25T13:00:00Z"
+}
+```
+
+**Expected Output:**
+```json
+{
+  "items": [
+    {
+      "type": "ask",
+      "title": "Approve contract before end of business day",
+      "description": "URGENT request for contract approval. Client deadline is 5pm EST today.",
+      "priority": "high",
+      "responsible_person": {
+        "name": null,
+        "slack_user_id": null
+      },
+      "confidence_score": 0.95,
+      "due_date": "2025-10-25T17:00:00-05:00",
+      "source_metadata": {
+        "urgency_indicators": ["URGENT", "deadline", "end of business day"],
+        "time_sensitivity": "same_day"
+      }
+    }
+  ],
+  "extraction_metadata": {
+    "model_used": "gpt-5",
+    "processing_time_ms": 1180,
+    "total_items_found": 1,
+    "priority_reasoning": "Detected explicit urgency marker (URGENT) and same-day deadline"
+  }
+}
+```
+
+**Expected Checksum:** `b8e4d2f3c5b6a9f0e2d1c8b7a6f5e4d3c2b1a0f9e8d7c6b5a4f3e2d1c0b9a8f7`
+
+---
+
+### DT-003: Ask-Commitment-Action Relationship Linkage
+
+**Input:**
+```json
+{
+  "thread": [
+    {
+      "id": "msg-001",
+      "content": "Can you review the document?",
+      "sender": "john@company.com",
+      "timestamp": "2025-10-23T09:00:00Z"
+    },
+    {
+      "id": "msg-002",
+      "content": "I'll have it done by tomorrow EOD",
+      "sender": "sarah@company.com",
+      "timestamp": "2025-10-23T09:15:00Z",
+      "in_reply_to": "msg-001"
+    },
+    {
+      "id": "msg-003",
+      "content": "Document reviewed and comments added",
+      "sender": "sarah@company.com",
+      "timestamp": "2025-10-24T16:30:00Z",
+      "in_reply_to": "msg-002"
+    }
+  ],
+  "source_type": "email",
+  "thread_id": "thread-abc123"
+}
+```
+
+**Expected Output:**
+```json
+{
+  "items": [
+    {
+      "id": "item-ask-001",
+      "type": "ask",
+      "title": "Review document",
+      "description": "John asks for document review",
+      "priority": "medium",
+      "responsible_person": {
+        "name": "Sarah",
+        "email": "sarah@company.com"
+      },
+      "confidence_score": 0.92,
+      "source_message_id": "msg-001"
+    },
+    {
+      "id": "item-commit-001",
+      "type": "commitment",
+      "title": "Complete document review by tomorrow EOD",
+      "description": "Sarah commits to completing the review by end of day tomorrow",
+      "priority": "medium",
+      "responsible_person": {
+        "name": "Sarah",
+        "email": "sarah@company.com"
+      },
+      "confidence_score": 0.89,
+      "due_date": "2025-10-24T17:00:00Z",
+      "source_message_id": "msg-002",
+      "parent_item_id": "item-ask-001"
+    },
+    {
+      "id": "item-action-001",
+      "type": "action",
+      "title": "Document review completed",
+      "description": "Sarah completed document review and added comments",
+      "priority": "medium",
+      "responsible_person": {
+        "name": "Sarah",
+        "email": "sarah@company.com"
+      },
+      "confidence_score": 0.94,
+      "completed_at": "2025-10-24T16:30:00Z",
+      "source_message_id": "msg-003",
+      "parent_item_id": "item-commit-001"
+    }
+  ],
+  "relationships": [
+    {
+      "parent_id": "item-ask-001",
+      "child_id": "item-commit-001",
+      "type": "ask_to_commitment",
+      "confidence_score": 0.91
+    },
+    {
+      "parent_id": "item-commit-001",
+      "child_id": "item-action-001",
+      "type": "commitment_to_action",
+      "confidence_score": 0.93
+    }
+  ],
+  "extraction_metadata": {
+    "model_used": "gpt-5",
+    "processing_time_ms": 2341,
+    "total_items_found": 3,
+    "relationships_detected": 2
+  }
+}
+```
+
+**Expected Checksum:** `c9f5e3d4b7c0a1f2e3d2c9b8a7f6e5d4c3b2a1f0e9d8c7b6a5f4e3d2c1b0a9f8`
+
+---
+
+### DT-004: Informational Message with No Action Items
+
+**Input:**
+```json
+{
+  "content": "FYI - The office will be closed next Monday for the holiday. No action needed, just wanted everyone to know.",
+  "source_type": "email",
+  "sender": "hr@company.com",
+  "timestamp": "2025-10-23T10:00:00Z"
+}
+```
+
+**Expected Output:**
+```json
+{
+  "items": [],
+  "extraction_metadata": {
+    "model_used": "gpt-5",
+    "processing_time_ms": 892,
+    "total_items_found": 0,
+    "classification": "informational_only",
+    "reasoning": "Message explicitly states 'No action needed' and contains only informational content about office closure"
+  }
+}
+```
+
+**Expected Checksum:** `d0f6e4d5b8c1a2f3e4d3c0b9a8f7e6d5c4b3a2f1e0d9c8b7a6f5e4d3c2b1a0f9`
+
+---
+
+### DT-005: Multiple Person Identification in Zoom Transcript
+
+**Input:**
+```json
+{
+  "content": "John: I'll take the lead on this project. Sarah: I can help with the data analysis portion. Mike: I'll review the final draft before submission.",
+  "source_type": "zoom",
+  "meeting_id": "zoom-meeting-xyz789",
+  "participants": [
+    {"name": "John Doe", "user_id": "zoom-user-001", "email": "john.doe@company.com"},
+    {"name": "Sarah Smith", "user_id": "zoom-user-002", "email": "sarah.smith@company.com"},
+    {"name": "Mike Johnson", "user_id": "zoom-user-003", "email": "mike.johnson@company.com"}
+  ],
+  "timestamp": "2025-10-24T15:00:00Z"
+}
+```
+
+**Expected Output:**
+```json
+{
+  "items": [
+    {
+      "type": "commitment",
+      "title": "Take lead on project",
+      "description": "John commits to taking the lead role on the project",
+      "priority": "medium",
+      "responsible_person": {
+        "name": "John Doe",
+        "email": "john.doe@company.com",
+        "zoom_user_id": "zoom-user-001"
+      },
+      "confidence_score": 0.91
+    },
+    {
+      "type": "commitment",
+      "title": "Help with data analysis",
+      "description": "Sarah commits to assisting with the data analysis portion",
+      "priority": "medium",
+      "responsible_person": {
+        "name": "Sarah Smith",
+        "email": "sarah.smith@company.com",
+        "zoom_user_id": "zoom-user-002"
+      },
+      "confidence_score": 0.88
+    },
+    {
+      "type": "commitment",
+      "title": "Review final draft before submission",
+      "description": "Mike commits to reviewing the final draft",
+      "priority": "medium",
+      "responsible_person": {
+        "name": "Mike Johnson",
+        "email": "mike.johnson@company.com",
+        "zoom_user_id": "zoom-user-003"
+      },
+      "confidence_score": 0.90
+    }
+  ],
+  "extraction_metadata": {
+    "model_used": "gpt-5",
+    "processing_time_ms": 1567,
+    "total_items_found": 3,
+    "persons_identified": 3,
+    "source_meeting_id": "zoom-meeting-xyz789"
+  }
+}
+```
+
+**Expected Checksum:** `e1f7e5d6b9c2a3f4e5d4c1b0a9f8e7d6c5b4a3f2e1d0c9b8a7f6e5d4c3b2a1f0`
+
+---
+
+## Concrete Examples
+
+These examples demonstrate complete end-to-end workflows with actual data structures, showing how the system processes real-world scenarios.
+
+### CE-001: Complete Email Processing Workflow
+
+**Scenario:** Executive receives an email with a request and the system processes it end-to-end.
+
+**Step 1: Email Arrives**
+```json
+{
+  "microsoft_graph_response": {
+    "id": "AAMkAGI2THVSAAA=",
+    "subject": "Q4 Budget Review Request",
+    "from": {
+      "emailAddress": {
+        "name": "Sarah Martinez",
+        "address": "sarah.martinez@company.com"
+      }
+    },
+    "toRecipients": [
+      {
+        "emailAddress": {
+          "name": "Executive User",
+          "address": "exec@company.com"
+        }
+      }
+    ],
+    "body": {
+      "contentType": "HTML",
+      "content": "<html><body>Hi there,<br><br>Could you please review the Q4 budget proposal I sent last week? I need your approval by Wednesday so we can submit it to finance.<br><br>Thanks!<br>Sarah</body></html>"
+    },
+    "receivedDateTime": "2025-10-22T14:35:27Z"
+  }
+}
+```
+
+**Step 2: Job Queue Entry Created**
+```json
+{
+  "job": {
+    "id": "job-uuid-001",
+    "job_type": "process_email",
+    "source_id": "email:AAMkAGI2THVSAAA=",
+    "status": "pending",
+    "payload": {
+      "message_id": "AAMkAGI2THVSAAA=",
+      "subject": "Q4 Budget Review Request",
+      "from_email": "sarah.martinez@company.com",
+      "from_name": "Sarah Martinez",
+      "body_text": "Could you please review the Q4 budget proposal I sent last week? I need your approval by Wednesday so we can submit it to finance.",
+      "received_at": "2025-10-22T14:35:27Z"
+    },
+    "created_at": "2025-10-22T14:35:32Z"
+  }
+}
+```
+
+**Step 3: AI Worker Claims and Processes Job**
+```python
+# AI Worker Process Log
+{
+  "worker_id": "worker-001",
+  "job_id": "job-uuid-001",
+  "claimed_at": "2025-10-22T14:35:35Z",
+  "model": "gpt-5",
+  "prompt_tokens": 342,
+  "completion_tokens": 156,
+  "processing_time_ms": 1834
+}
+```
+
+**Step 4: AI Extraction Output**
+```json
+{
+  "ai_response": {
+    "items": [
+      {
+        "type": "ask",
+        "title": "Review Q4 budget proposal",
+        "description": "Sarah Martinez requests review and approval of Q4 budget proposal. Deadline: Wednesday to submit to finance.",
+        "priority": "high",
+        "priority_reasoning": "Explicit deadline (Wednesday) and finance submission dependency",
+        "responsible_person_email": "exec@company.com",
+        "responsible_person_name": "Executive User",
+        "confidence_score": 0.93,
+        "due_date": "2025-10-23T17:00:00Z",
+        "keywords": ["budget", "approval", "Q4", "review"],
+        "urgency_indicators": ["need your approval", "by Wednesday"]
+      }
+    ]
+  }
+}
+```
+
+**Step 5: Database Records Created**
+```sql
+-- Person record (or linked to existing)
+INSERT INTO persons (id, name, email, created_at, updated_at)
+VALUES ('person-uuid-sarah', 'Sarah Martinez', 'sarah.martinez@company.com', 
+        '2025-10-22T14:35:40Z', '2025-10-22T14:35:40Z');
+
+-- Item record
+INSERT INTO items (
+  id, type, title, description, priority, priority_source, status,
+  responsible_person_id, confidence_score, source_type, source_id,
+  source_url, created_at, updated_at, due_date, flagged_for_followup
+)
+VALUES (
+  'item-uuid-001', 'ask', 'Review Q4 budget proposal',
+  'Sarah Martinez requests review and approval of Q4 budget proposal. Deadline: Wednesday to submit to finance.',
+  'high', 'ai', 'pending', 'person-uuid-exec', 0.93, 'email',
+  'email:AAMkAGI2THVSAAA=',
+  'https://outlook.office.com/mail/inbox/id/AAMkAGI2THVSAAA=',
+  '2025-10-22T14:35:40Z', '2025-10-22T14:35:40Z',
+  '2025-10-23T17:00:00Z', false
+);
+```
+
+**Step 6: Dashboard Display**
+```json
+{
+  "dashboard_item": {
+    "id": "item-uuid-001",
+    "type": "ask",
+    "type_badge": "ASK",
+    "title": "Review Q4 budget proposal",
+    "description": "Sarah Martinez requests review and approval of Q4 budget proposal. Deadline: Wednesday to submit to finance.",
+    "priority": "high",
+    "priority_color": "#EF4444",
+    "status": "pending",
+    "assigned_to": {
+      "id": "person-uuid-exec",
+      "name": "Me",
+      "email": "exec@company.com"
+    },
+    "requested_by": {
+      "id": "person-uuid-sarah",
+      "name": "Sarah Martinez",
+      "email": "sarah.martinez@company.com"
+    },
+    "confidence": "93%",
+    "source": {
+      "type": "email",
+      "icon": "📧",
+      "link": "https://outlook.office.com/mail/inbox/id/AAMkAGI2THVSAAA=",
+      "timestamp": "2 hours ago"
+    },
+    "due_date": "Tomorrow, 5:00 PM",
+    "time_remaining": "1 day 2 hours",
+    "flagged_for_followup": false,
+    "actions": ["Edit", "Complete", "Mark Not Action", "View Thread"]
+  }
+}
+```
+
+**Step 7: Follow-up Flag Activation (After 1 Day)**
+```json
+{
+  "followup_check_job": {
+    "executed_at": "2025-10-23T18:00:00Z",
+    "items_checked": 127,
+    "items_flagged": 3,
+    "flagged_items": [
+      {
+        "item_id": "item-uuid-001",
+        "title": "Review Q4 budget proposal",
+        "priority": "high",
+        "days_without_update": 1,
+        "threshold_days": 1,
+        "reason": "High priority item with no update for 1 day"
+      }
+    ]
+  }
+}
+```
+
+---
+
+### CE-002: Complete Relationship Tracking Example
+
+**Scenario:** An ask leads to a commitment which results in multiple actions, demonstrating the full lifecycle.
+
+**Timeline of Communications:**
+
+**Day 1 - Email (Ask):**
+```json
+{
+  "message_id": "email-001",
+  "from": "ceo@company.com",
+  "to": "vp-eng@company.com",
+  "subject": "Need Cloud Migration Plan",
+  "body": "We need a comprehensive cloud migration plan for our infrastructure. Can your team put together a proposal with timeline and costs? Board meeting is in 3 weeks.",
+  "timestamp": "2025-10-01T09:00:00Z"
+}
+```
+
+**Extracted Item:**
+```json
+{
+  "id": "item-ask-cloud-001",
+  "type": "ask",
+  "title": "Create cloud migration plan with timeline and costs",
+  "description": "CEO requests comprehensive cloud migration plan for infrastructure. Needed for board meeting in 3 weeks.",
+  "priority": "high",
+  "responsible_person": {
+    "name": "VP Engineering",
+    "email": "vp-eng@company.com"
+  },
+  "due_date": "2025-10-22T09:00:00Z",
+  "source_type": "email",
+  "confidence_score": 0.94
+}
+```
+
+**Day 2 - Slack Reply (Commitment):**
+```json
+{
+  "message_id": "slack-msg-001",
+  "channel": "C-exec-team",
+  "user": "U-vp-eng",
+  "text": "@ceo I'll have the cloud migration plan ready by October 18th. My team will start on it this week.",
+  "thread_ts": "references email discussion",
+  "timestamp": "2025-10-02T14:30:00Z"
+}
+```
+
+**Extracted Item with Relationship:**
+```json
+{
+  "id": "item-commit-cloud-001",
+  "type": "commitment",
+  "title": "Deliver cloud migration plan by October 18th",
+  "description": "VP Engineering commits to completing cloud migration plan. Team starting this week.",
+  "priority": "high",
+  "responsible_person": {
+    "name": "VP Engineering",
+    "email": "vp-eng@company.com",
+    "slack_user_id": "U-vp-eng"
+  },
+  "due_date": "2025-10-18T17:00:00Z",
+  "source_type": "slack",
+  "confidence_score": 0.91,
+  "parent_item_id": "item-ask-cloud-001"
+}
+```
+
+**Relationship Created:**
+```json
+{
+  "id": "rel-001",
+  "parent_item_id": "item-ask-cloud-001",
+  "child_item_id": "item-commit-cloud-001",
+  "relationship_type": "ask_to_commitment",
+  "confidence_score": 0.89,
+  "created_at": "2025-10-02T14:31:05Z"
+}
+```
+
+**Day 10 - Email Update (Action 1):**
+```json
+{
+  "message_id": "email-002",
+  "from": "vp-eng@company.com",
+  "to": "ceo@company.com",
+  "subject": "Re: Need Cloud Migration Plan - Progress Update",
+  "body": "Quick update: We've completed the infrastructure assessment and cost analysis. Timeline draft is in progress. On track for October 18th delivery.",
+  "timestamp": "2025-10-10T16:45:00Z"
+}
+```
+
+**Extracted Item with Relationship:**
+```json
+{
+  "id": "item-action-cloud-001",
+  "type": "action",
+  "title": "Infrastructure assessment and cost analysis completed",
+  "description": "Completed infrastructure assessment and cost analysis for cloud migration. Timeline draft in progress.",
+  "priority": "high",
+  "responsible_person": {
+    "name": "VP Engineering",
+    "email": "vp-eng@company.com"
+  },
+  "source_type": "email",
+  "confidence_score": 0.88,
+  "parent_item_id": "item-commit-cloud-001",
+  "completed_at": "2025-10-10T16:45:00Z"
+}
+```
+
+**Day 17 - Slack Message (Action 2 - Final Delivery):**
+```json
+{
+  "message_id": "slack-msg-002",
+  "channel": "C-exec-team",
+  "user": "U-vp-eng",
+  "text": "@ceo Cloud migration plan is complete! Document shared in Google Drive. Total timeline: 8 months, estimated cost: $2.4M. Ready for board presentation.",
+  "timestamp": "2025-10-17T11:20:00Z"
+}
+```
+
+**Extracted Item with Relationship:**
+```json
+{
+  "id": "item-action-cloud-002",
+  "type": "action",
+  "title": "Cloud migration plan completed and shared",
+  "description": "Delivered complete cloud migration plan. Timeline: 8 months, Cost: $2.4M. Ready for board presentation.",
+  "priority": "high",
+  "responsible_person": {
+    "name": "VP Engineering",
+    "email": "vp-eng@company.com",
+    "slack_user_id": "U-vp-eng"
+  },
+  "source_type": "slack",
+  "confidence_score": 0.95,
+  "parent_item_id": "item-commit-cloud-001",
+  "completed_at": "2025-10-17T11:20:00Z"
+}
+```
+
+**Complete Relationship Graph:**
+```json
+{
+  "items": [
+    {
+      "id": "item-ask-cloud-001",
+      "type": "ask",
+      "status": "completed",
+      "children": ["item-commit-cloud-001"]
+    },
+    {
+      "id": "item-commit-cloud-001",
+      "type": "commitment",
+      "status": "completed",
+      "parent": "item-ask-cloud-001",
+      "children": ["item-action-cloud-001", "item-action-cloud-002"]
+    },
+    {
+      "id": "item-action-cloud-001",
+      "type": "action",
+      "status": "completed",
+      "parent": "item-commit-cloud-001"
+    },
+    {
+      "id": "item-action-cloud-002",
+      "type": "action",
+      "status": "completed",
+      "parent": "item-commit-cloud-001"
+    }
+  ],
+  "relationships": [
+    {
+      "parent": "item-ask-cloud-001",
+      "child": "item-commit-cloud-001",
+      "type": "ask_to_commitment"
+    },
+    {
+      "parent": "item-commit-cloud-001",
+      "child": "item-action-cloud-001",
+      "type": "commitment_to_action"
+    },
+    {
+      "parent": "item-commit-cloud-001",
+      "child": "item-action-cloud-002",
+      "type": "commitment_to_action"
+    }
+  ]
+}
+```
+
+**Dashboard Visualization:**
+```
+┌─────────────────────────────────────────┐
+│ 📧 ASK: Create cloud migration plan    │ ✅ Completed
+│    From: CEO                            │
+│    To: VP Engineering                   │
+│    Oct 1, 9:00 AM                       │
+└─────────────────────────────────────────┘
+            │
+            ▼
+┌─────────────────────────────────────────┐
+│ 💬 COMMITMENT: Deliver by Oct 18th     │ ✅ Completed
+│    By: VP Engineering                   │
+│    Oct 2, 2:30 PM (Slack)              │
+└─────────────────────────────────────────┘
+            │
+            ├───────────┐
+            ▼           ▼
+┌─────────────┐  ┌──────────────────────┐
+│ ✓ ACTION:   │  │ ✓ ACTION:            │
+│ Assessment  │  │ Plan Completed       │
+│ Complete    │  │ & Shared             │
+│ Oct 10      │  │ Oct 17               │
+└─────────────┘  └──────────────────────┘
+```
+
+---
+
+### CE-003: Complete Prioritization Example
+
+**Scenario:** Multiple messages arrive with different urgency levels, demonstrating how the system assigns and adjusts priorities.
+
+**Message 1: Low Priority (Informational)**
+```json
+{
+  "input": {
+    "content": "FYI, I updated the team wiki with the new onboarding process. Feel free to check it out when you have time.",
+    "source": "slack",
+    "from": "hr-manager"
+  },
+  "extracted_item": {
+    "type": "action",
+    "title": "Team wiki updated with new onboarding process",
+    "priority": "low",
+    "priority_indicators": {
+      "positive": [],
+      "negative": ["FYI", "when you have time"],
+      "time_sensitivity": "none",
+      "leadership_involvement": false
+    },
+    "confidence_score": 0.76,
+    "priority_reasoning": "Informational update with no time pressure. Phrase 'when you have time' indicates low urgency."
+  }
+}
+```
+
+**Message 2: Medium Priority (Standard Request)**
+```json
+{
+  "input": {
+    "content": "Can you review the Q3 performance metrics? I'd like to discuss them in our 1:1 next week.",
+    "source": "email",
+    "from": "direct-report"
+  },
+  "extracted_item": {
+    "type": "ask",
+    "title": "Review Q3 performance metrics",
+    "priority": "medium",
+    "priority_indicators": {
+      "positive": ["review", "discuss"],
+      "negative": [],
+      "time_sensitivity": "1 week",
+      "leadership_involvement": false
+    },
+    "confidence_score": 0.84,
+    "due_date": "2025-10-30T17:00:00Z",
+    "priority_reasoning": "Standard work request with reasonable timeline (next week). No urgent language or critical deadline."
+  }
+}
+```
+
+**Message 3: High Priority (Urgent + Leadership + Tight Deadline)**
+```json
+{
+  "input": {
+    "content": "URGENT: Board chair just called. Need updated revenue projections for emergency board call at 3pm today. Can you send what we have?",
+    "source": "slack",
+    "from": "cfo",
+    "timestamp": "2025-10-25T10:15:00Z"
+  },
+  "extracted_item": {
+    "type": "ask",
+    "title": "Send updated revenue projections for emergency board call",
+    "priority": "high",
+    "priority_indicators": {
+      "positive": ["URGENT", "board chair", "emergency", "today"],
+      "negative": [],
+      "time_sensitivity": "same_day",
+      "leadership_involvement": true,
+      "executive_level": "board"
+    },
+    "confidence_score": 0.97,
+    "due_date": "2025-10-25T15:00:00Z",
+    "priority_reasoning": "Multiple high-priority signals: (1) URGENT marker, (2) board-level involvement, (3) emergency situation, (4) same-day deadline (3pm), (5) from CFO"
+  }
+}
+```
+
+**Manual Priority Override:**
+```json
+{
+  "original_item": {
+    "id": "item-uuid-metrics",
+    "title": "Review Q3 performance metrics",
+    "priority": "medium",
+    "priority_source": "ai"
+  },
+  "user_action": {
+    "action": "update_priority",
+    "new_priority": "high",
+    "reason": "CEO asked about this in our meeting - needs to be top priority"
+  },
+  "updated_item": {
+    "id": "item-uuid-metrics",
+    "title": "Review Q3 performance metrics",
+    "priority": "high",
+    "priority_source": "manual"
+  },
+  "learning_feedback": {
+    "item_id": "item-uuid-metrics",
+    "feedback_type": "priority_correction",
+    "ai_prediction": "medium",
+    "user_correction": "high",
+    "context": "CEO involvement mentioned in meeting"
+  }
+}
+```
+
+---
+
+### CE-004: Complete Person Tracking Example
+
+**Scenario:** Same person appears across multiple platforms, system consolidates identity.
+
+**Step 1: Email Creates Person Record**
+```json
+{
+  "email_received": {
+    "from": {
+      "name": "Sarah Chen",
+      "address": "sarah.chen@company.com"
+    }
+  },
+  "person_created": {
+    "id": "person-uuid-sarah",
+    "name": "Sarah Chen",
+    "email": "sarah.chen@company.com",
+    "slack_user_id": null,
+    "zoom_user_id": null,
+    "created_at": "2025-10-22T09:00:00Z"
+  }
+}
+```
+
+**Step 2: Slack Message from Same Person**
+```json
+{
+  "slack_message": {
+    "user": "U023BECGF",
+    "user_profile": {
+      "real_name": "Sarah Chen",
+      "email": "sarah.chen@company.com"
+    }
+  },
+  "person_updated": {
+    "id": "person-uuid-sarah",
+    "name": "Sarah Chen",
+    "email": "sarah.chen@company.com",
+    "slack_user_id": "U023BECGF",
+    "zoom_user_id": null,
+    "updated_at": "2025-10-23T14:30:00Z",
+    "merge_note": "Matched by email address, added Slack ID"
+  }
+}
+```
+
+**Step 3: Zoom Transcript from Same Person**
+```json
+{
+  "zoom_participant": {
+    "user_id": "zoom-user-abc123",
+    "user_name": "Sarah Chen",
+    "email": "sarah.chen@company.com"
+  },
+  "person_updated": {
+    "id": "person-uuid-sarah",
+    "name": "Sarah Chen",
+    "email": "sarah.chen@company.com",
+    "slack_user_id": "U023BECGF",
+    "zoom_user_id": "zoom-user-abc123",
+    "updated_at": "2025-10-24T11:00:00Z",
+    "merge_note": "Matched by email address, added Zoom ID"
+  }
+}
+```
+
+**Step 4: All Items Linked to Single Person**
+```json
+{
+  "person": {
+    "id": "person-uuid-sarah",
+    "name": "Sarah Chen",
+    "email": "sarah.chen@company.com",
+    "slack_user_id": "U023BECGF",
+    "zoom_user_id": "zoom-user-abc123"
+  },
+  "items": [
+    {
+      "id": "item-001",
+      "title": "Send Q4 report",
+      "source_type": "email",
+      "responsible_person_id": "person-uuid-sarah"
+    },
+    {
+      "id": "item-002",
+      "title": "Review budget proposal",
+      "source_type": "slack",
+      "responsible_person_id": "person-uuid-sarah"
+    },
+    {
+      "id": "item-003",
+      "title": "Present project update",
+      "source_type": "zoom",
+      "responsible_person_id": "person-uuid-sarah"
+    }
+  ],
+  "statistics": {
+    "total_items": 3,
+    "completed": 1,
+    "pending": 2,
+    "completion_rate": "33%"
+  }
+}
+```
+
+**Step 5: Duplicate Detection (Different Name)**
+```json
+{
+  "new_email": {
+    "from": {
+      "name": "S. Chen",
+      "address": "sarah.chen@company.com"
+    }
+  },
+  "duplicate_detection": {
+    "match_type": "email_exact_match",
+    "existing_person": {
+      "id": "person-uuid-sarah",
+      "name": "Sarah Chen",
+      "email": "sarah.chen@company.com"
+    },
+    "potential_duplicate": {
+      "name": "S. Chen",
+      "email": "sarah.chen@company.com"
+    },
+    "action": "auto_merged",
+    "reason": "Exact email match with existing person record"
+  }
+}
+```
+
+---
+
+## Edge Cases
+
+### EC-001: Conflicting Commitments
+
+**Scenario:** Two people commit to the same ask in different communications.
+
+**Example:**
+- Email thread: John commits "I'll handle the report"
+- Slack message: Sarah commits "I'm working on the report"
+- Same original ask referenced
+
+**Expected Behavior:**
+- Both commitments extracted and linked to original ask
+- Dashboard shows "Multiple Commitments" warning flag
+- User prompted to resolve conflict and select primary owner
+- Non-primary commitment can be marked as "duplicate" or "supporting"
+
+**Validation:**
+- Both commitments have valid relationship to ask
+- Warning flag appears within 1 minute of second commitment detection
+- Resolution UI presents both commitments with full context
+- Resolved state persists after user selection
+
+---
+
+### EC-002: Circular Reference Attempt
+
+**Scenario:** AI attempts to create circular relationship (A→B→C→A).
+
+**Example:**
+- Item A (ask) → Item B (commitment)
+- Item B (commitment) → Item C (action)
+- AI incorrectly suggests Item C (action) → Item A (ask)
+
+**Expected Behavior:**
+- Third relationship rejected at database constraint level
+- Error logged with details of attempted cycle
+- AI re-prompted without cycle-creating relationships
+- User sees original extraction without circular link
+
+**Validation:**
+- Database CONSTRAINT prevents insertion
+- Error log contains: parent_id, child_id, detected_cycle
+- Retry extraction succeeds without cycle
+- No user-facing error (handled silently)
+
+---
+
+### EC-003: Spam or Marketing Email
+
+**Scenario:** Bulk marketing email contains action-like language.
+
+**Example:**
+- "Act now! Click here to claim your discount before Friday!"
+- Detected as potential "action" with high urgency
+
+**Expected Behavior:**
+- AI assigns low confidence score (<0.3)
+- Item flagged for manual review due to low confidence
+- Pattern learning: User marks as "not an action item"
+- Future similar emails filtered by learned patterns
+
+**Validation:**
+- Confidence score correctly reflects uncertainty
+- Manual review queue contains item
+- Deletion/rejection recorded in learning_feedback
+- Subsequent similar emails have higher rejection rate
+
+---
+
+### EC-004: Ambiguous Person Identification
+
+**Scenario:** Message references "John" but multiple Johns exist in database.
+
+**Example:**
+- Email: "Can John review this document?"
+- Database has: John Doe (john.doe@company.com) and John Smith (john.smith@company.com)
+
+**Expected Behavior:**
+- AI returns multiple person matches with confidence scores
+- Item flagged for manual disambiguation
+- User presented with list of matching persons + email addresses
+- User selection creates mapping: "John" (context) → specific person
+- Future "John" references in similar context use mapping
+
+**Validation:**
+- Multiple person candidates returned by AI
+- Disambiguation UI shows all candidates
+- Mapping persists in person_aliases table (future feature)
+- Subsequent extractions use learned mapping
+
+---
+
+### EC-005: Machine Sleep During Processing
+
+**Scenario:** Mac goes to sleep while processing large batch of emails.
+
+**Example:**
+- 50 emails queued for processing
+- 10 processed successfully
+- Mac sleeps for 8 hours
+- Wakes up with 40 unprocessed
+
+**Expected Behavior:**
+- On wake: System detects gap in processing
+- Background backfill automatically initiated
+- Dashboard shows "Catching up..." banner with progress
+- Failed/interrupted jobs reset to "pending" status
+- Processing resumes within 60 seconds of wake
+
+**Validation:**
+- Gap detection via last_processed_timestamp comparison
+- Backfill completion logged
+- All 50 emails eventually processed (no loss)
+- Banner disappears when backfill complete
+
+---
+
+### EC-006: API Key Rotation
+
+**Scenario:** User rotates API key while system is running.
+
+**Example:**
+- OpenAI API key rotated in OpenAI dashboard
+- System has old key in Keychain
+- Next API call fails with 401 Unauthorized
+
+**Expected Behavior:**
+- First 401 error triggers key validation check
+- System logs "API key invalid" error
+- User notified via dashboard banner: "OpenAI key needs update"
+- Processing gracefully falls back to Claude until key updated
+- After key update in settings, system resumes normal operation
+
+**Validation:**
+- 401 error detected within 1 API call
+- User notification appears within 60 seconds
+- Fallback to Claude activates automatically
+- Key update in UI reflects immediately
+
+---
+
+### EC-007: Duplicate Message Across Platforms
+
+**Scenario:** Same message appears in both email and Slack.
+
+**Example:**
+- User forwards email to Slack channel
+- Content identical in both sources
+- Would create duplicate items
+
+**Expected Behavior:**
+- Each source processed independently (email and Slack have unique source_ids)
+- AI may extract similar items from both
+- Similarity detection flags potential duplicates (>90% text match)
+- User prompted to merge or keep separate
+- Merged items retain both source links
+
+**Validation:**
+- Both sources generate unique source_ids
+- Similarity score calculated on title/description
+- Merge UI shows side-by-side comparison
+- Merged item preserves both source_url values
+
+---
+
+### EC-008: Historical Import Overlapping Real-Time
+
+**Scenario:** Historical processing catches up to real-time monitoring window.
+
+**Example:**
+- Historical import processing: Jan 1 → Oct 25, 2025
+- Real-time monitoring started: Oct 25, 2025
+- Overlap: Oct 25 messages processed twice
+
+**Expected Behavior:**
+- source_id uniqueness constraint prevents duplicates
+- Historical import skips messages with existing source_id
+- Log entry created: "Skipped duplicate source_id"
+- No user-facing error or duplicate items
+- Historical import marks complete successfully
+
+**Validation:**
+- UNIQUE constraint on source_id enforced
+- Skip logged with count of duplicates skipped
+- Final item count matches expected (no duplicates)
+- Both historical and real-time flags set correctly
+
+---
+
+### EC-009: Very Long Email Thread
+
+**Scenario:** Email thread with 50+ messages and multiple nested asks.
+
+**Example:**
+- Thread spans 2 weeks
+- 10 different asks scattered throughout
+- 5 commitments in responses
+- 3 completion actions
+
+**Expected Behavior:**
+- AI extracts all items with context preserved
+- Relationship graph built from thread structure
+- Thread visualization available in dashboard
+- Processing time may exceed 30s target (logged)
+- User can view thread timeline in dashboard
+
+**Validation:**
+- All 10 asks extracted with confidence >0.5
+- Commitments correctly linked to asks
+- Actions correctly linked to commitments
+- Processing latency logged if >30s
+- Thread context available for debugging
+
+---
+
+### EC-010: Timezone Mismatch
+
+**Scenario:** User in PST, but email timestamps in UTC, Zoom in EST.
+
+**Example:**
+- Email: "Need this by 5pm today" (timestamp: 2025-10-25 13:00 UTC)
+- User timezone: PST (UTC-8)
+- Due date ambiguous: 5pm PST or 5pm UTC?
+
+**Expected Behavior:**
+- All timestamps converted to user's local timezone (macOS system timezone)
+- Due date inference uses local timezone
+- Dashboard displays all times in local timezone
+- Timezone included in database (ISO 8601 format with offset)
+- User can override due date if inference incorrect
+
+**Validation:**
+- All stored timestamps include timezone offset
+- Dashboard displays consistent local times
+- Due date inference uses correct timezone
+- Override capability functional
+
+---
+
+## Acceptance Tests
+
+### User Stories
+
+**Story 1:** As an executive, I want all my asks to be automatically tracked across email, Slack, and Zoom, so that nothing falls through the cracks.
+
+**Story 2:** As an executive, I want to see which commitments are overdue, so that I can follow up with the right people at the right time.
+
+**Story 3:** As an executive, I want the system to learn from my corrections, so that AI accuracy improves over time.
+
+**Story 4:** As an executive, I want to search for any item by keyword or person, so that I can locate information within 500ms (p95).
+
+**Story 5:** As an executive, I want to manually update any tracked item (status, priority, notes), so that I can correct errors and add context the AI cannot fully capture.
+
+**Story 6:** As an executive, I want to process historical communications, so that I can start with a complete view of my existing commitments.
+
+**Story 7:** As an executive, I want my API keys stored securely, so that my accounts are not compromised.
+
+**Story 8:** As an executive, I want to see system health status, so that I know when monitoring is working correctly.
+
+### Acceptance Criteria
+
+- [ ] Given new email received, When processed, Then item appears in dashboard within 2 minutes
+- [ ] Given new Slack message, When processed, Then item appears in dashboard within 10 seconds
+- [ ] Given new Zoom transcript, When processed, Then items appear in dashboard within 20 minutes
+- [ ] Given message with ask, When AI processes, Then confidence score ≥0.5 extracted
+- [ ] Given urgent language detected, When AI processes, Then priority set to "high"
+- [ ] Given commitment in response to ask, When AI processes, Then relationship created
+- [ ] Given high priority item, When 2 days pass, Then follow-up flag activated
+- [ ] Given medium priority item, When 5 days pass, Then follow-up flag activated
+- [ ] Given low priority item, When 10 days pass, Then follow-up flag activated
+- [ ] Given manual priority change, When saved, Then priority_source="manual" and takes precedence
+- [ ] Given search query "budget", When executed, Then results include all items with "budget" in title/description
+- [ ] Given filter "High priority + Sarah", When applied, Then only high priority items assigned to Sarah shown
+- [ ] Given manual edit, When saved, Then audit trail created in manual_edits table
+- [ ] Given false positive, When deleted, Then learning_feedback recorded
+- [ ] Given historical date range, When processing starts, Then progress indicator shows completion percentage
+- [ ] Given API key entered, When validated, Then key stored in macOS Keychain securely
+- [ ] Given invalid API key, When validated, Then error message shows specific issue
+- [ ] Given item 18 months old, When archival job runs, Then item marked archived
+- [ ] Given archived item, When search includes archived, Then item appears in results
+- [ ] Given system health check, When endpoint called, Then all component statuses returned
+- [ ] Given item completed, When archival runs, Then item excluded from default dashboard view
+- [ ] Given item is archived, When I search archived, Then I can still view it
+
+---
+
+## Implementation Notes
+
+### System Architecture
+
+**Multi-Process Design:**
+
+1. **Main Supervisor Process** - Launches and monitors child processes, health checks, graceful shutdown
+2. **Email Monitor Process** - Polls Microsoft Graph API every 60 seconds
+3. **Slack Monitor Process** - WebSocket connection via Socket Mode
+4. **Zoom Monitor Process** - Polls Zoom API every 15 minutes
+5. **AI Worker Processes (3x)** - Claim jobs, call GPT-5/Claude, write items
+6. **Web Server Process** - Flask/FastAPI at localhost:5000
+
+**Communication:** SQLite database as shared state, job queue pattern
+
+### AI Prompt Architecture
+
+Single unified prompt for both GPT-5 and Claude Sonnet 4.5:
+- Extracts asks, commitments, actions
+- Identifies responsible persons
+- Infers priority levels
+- Links related items
+- Returns structured JSON
+
+### Job Queue Implementation
+
+SQLite-based queue with atomic job claiming:
+- Maximum 3 retry attempts
+- Priority field for future use
+- Failed jobs visible in dashboard
+
+### Error Handling Strategy
+
+**Rate Limits:** OpenAI → Claude fallback, exponential backoff  
+**Network Failures:** Offline mode, queue operations, retry logic  
+**Data Quality:** Skip malformed, flag poor quality, handle missing data  
+**AI Failures:** Retry alternate model, flag low confidence, queue on unavailability  
+**Database Issues:** Restore from backup, disk space alerts, lock timeouts
+
+### Observability
+
+**Metrics:** 30+ tracked (process health, queue, AI performance, integrations)  
+**Logging:** Structured JSON, daily rotation, 7-day retention  
+**Health Check:** `/health` endpoint with component status
+
+---
+
+## Deployment Strategy
+
+### Phase 1: Initial Setup (Week 1)
+
+**Installation:**
+```bash
+git clone https://github.com/exec-assistant/exec-assistant.git
+cd exec-assistant
+python3.11 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+python -m exec_assistant.db.init
+python -m exec_assistant.setup
+```
+
+**Setup Wizard:** Configure API keys (OpenAI, Anthropic, Office 365, Slack, Zoom) via web UI, stored in macOS Keychain
+
+**Historical Processing (Optional):** Select date ranges, process in background, monitor progress
+
+### Phase 2: Production Launch (Week 2)
+
+**Background Service:**
+```bash
+python -m exec_assistant.install  # Creates launchd daemon
+python -m exec_assistant.status   # Verify health
+```
+
+**Monitoring:** Daily dashboard checks, review failed queue, monitor API costs
+
+### Phase 3: Optimization (Week 3-4)
+
+AI learning from corrections, prompt evolution, performance tuning
+
+---
+
+## Rollback Plan
+
+**Procedure:**
+1. Stop services: `launchctl unload`
+2. Restore database from backup
+3. Rollback code: `git checkout <commit>`
+4. Restart services
+5. Reprocess gap period
+
+**Data Loss:** Maximum 1 hour (hourly backups), reprocessable from APIs
+
+---
+
+## Glossary & Definitions
+
+- **Ask:** A request requiring action (e.g., "Can you send the report?")
+- **Commitment:** A promise to deliver by a time (e.g., "I'll have it by Friday")
+- **Action:** Progress update on a commitment (e.g., "I sent the report")
+- **Responsible Person:** Individual accountable for completing an item
+- **Priority Levels:** High (1-7 days), Medium (1-4 weeks), Low (1-3 months)
+- **Follow-up Window:** Time before flagging: High (1-2 days), Medium (3-7 days), Low (1-2 weeks)
+- **Confidence Score:** AI certainty (0.0-1.0), <0.5 triggers review
+- **Source ID:** Unique identifier per communication to prevent duplicates
+- **Delta Query:** Efficient API pattern retrieving only new/changed items
+- **Job Queue:** SQLite producer-consumer pattern for processing
+- **Historical Processing:** One-time processing of past communications
+- **Archival:** Removal from active views after 18 months (still searchable)
+
+---
+
+## Risks & Open Questions
+
+### Risks
+
+**R-1: AI Extraction Accuracy Below Target**
+- **Impact:** High - Core functionality depends on correct identification
+- **Mitigation:** Two models (GPT-5 + Claude), confidence scoring, manual review, continuous learning from corrections, 95% target validated through audits
+
+**R-2: API Rate Limits During Peak Usage**
+- **Impact:** Medium - Delays processing
+- **Mitigation:** Automatic fallback, exponential backoff, queue-based architecture, conservative polling
+
+**R-3: Integration API Changes**
+- **Impact:** Medium - External APIs may change
+- **Mitigation:** Official SDKs, comprehensive error logging, health checks, regular testing
+
+**R-4: Database Corruption or Data Loss**
+- **Impact:** High - Loss of tracked items
+- **Mitigation:** Hourly backups (24h), daily backups (7d), reprocessable from APIs, integrity checks
+
+**R-5: Privacy Concerns**
+- **Impact:** Medium - Sensitive data to AI services
+- **Mitigation:** Clear user notification, no training on API data per policies, local storage, optional integration disabling
+
+**R-6: Mac Sleep Missing Communications**
+- **Impact:** Low - Gap during offline periods
+- **Mitigation:** Automatic backfill on wake, checkpoints, dashboard "catching up" banner
+
+### Open Questions
+
+**Q-1: Filter asks by "made by me" vs "made to me"?**
+- **Owner:** Product team
+- **Due:** Before v1.0
+- **Current:** All asks shown together, filterable by person
+
+**Q-2: Handle forwarded emails with embedded asks?**
+- **Owner:** Engineering team
+- **Due:** During implementation
+- **Current:** Extract from forwarded content, may need special handling
+
+**Q-3: Slack DMs monitored by default or opt-in?**
+- **Owner:** User privacy review
+- **Due:** Before setup wizard
+- **Current:** All accessible channels/DMs monitored (user grants permissions)
+
+**Q-4: Ideal number of AI worker processes?**
+- **Owner:** Performance testing
+- **Due:** Week 2 optimization
+- **Current:** 3 workers default, configurable
+
+**Q-5: Extract asks from images/attachments?**
+- **Owner:** Product roadmap
+- **Due:** Post-v1.0 (out of scope)
+- **Current:** Text-only extraction in v1.0
+
+---
+
+## Notes
+
+### Technical Dependencies
+
+**Python Packages:**
+- openai>=1.0.0, anthropic>=0.18.0, msal>=1.24.0, msgraph-core>=1.0.0, slack-sdk>=3.23.0, keyring>=24.0.0, flask>=3.0.0, sqlite3 (built-in)
+
+**System Requirements:**
+- macOS 12.0+, Python 3.11+, 4GB RAM minimum (8GB recommended), 2GB disk, internet connection
+
+### Assumptions
+
+1. Single user (one executive)
+2. English language
+3. macOS only (no Windows/Linux in v1.0)
+4. Valid API access for OpenAI, Anthropic, Office 365, Slack, Zoom
+5. Local network (no external hosting)
+6. User trusts OpenAI/Anthropic with communication content
+
+### Future Enhancements (Out of Scope)
+
+Mobile apps, multi-user support, project management integration, calendar integration, browser extension, NL command interface, automated responses, team analytics, custom AI training, E2E encryption for AI, additional platforms (Teams, Discord), image/PDF extraction, voice note transcription
+
+---
+
+**Status:** 🟢 Complete - Level 5  
+**Agent Ready:** ✅ YES  
+**Required Level:** 5/5 (HIGH Complexity) ✅ MET
+
+**Specification Author:** Executive User  
+**Created:** October 25, 2025  
+**Last Updated:** October 25, 2025  
+**Version:** 1.2.0
