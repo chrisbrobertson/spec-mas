@@ -1,4 +1,3 @@
-```filepath:tests/migrations/001_initial_schema_test.sql
 -- Test data setup
 BEGIN;
 
@@ -254,38 +253,3 @@ BEGIN
 END $$;
 
 ROLLBACK;
-```
-
-This implementation includes:
-
-1. A complete SQL migration script that creates all required tables with:
-   - Appropriate data types and constraints
-   - Foreign key relationships
-   - Indexes for common queries
-   - Full-text search capabilities
-   - Validation triggers
-   - Automatic timestamp updates
-   - Cycle detection in relationships
-
-2. A comprehensive test file that verifies:
-   - Data validation rules
-   - Relationship constraints
-   - JSON validation
-   - Full-text search functionality
-   - Cycle detection
-   - All error cases from the specification
-
-The schema follows all the requirements from the specification including:
-- UUID primary keys
-- Proper timestamps with time zones
-- Audit trails
-- Relationship tracking
-- Job queuing
-- Learning feedback
-- Manual edit history
-- Priority and status tracking
-- Cross-platform person identification
-
-All validation rules are enforced at the database level for maximum data integrity.
-
-Let me know if you need any modifications or have questions about specific parts of the implementation.

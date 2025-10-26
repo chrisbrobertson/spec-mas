@@ -1,283 +1,323 @@
-I'll help implement the integration adapters focusing on secure API integration, error handling, and proper service orchestration. Let me start by creating the necessary files for integrating the authentication layer.
+Let me help implement the integration adapters for this AI Executive Assistant system. I'll start with the core integration components needed to handle authentication and external service connectivity.
 
-```filepath:src/integrations/auth/types.ts
-/**
- * Core authentication types for service integration
- */
-
-export type TokenType = 'oauth' | 'apiKey' | 'msal' | 'jwt';
-
-export interface AuthToken {
-  token: string;
-  type: TokenType;
-  expiresAt?: Date;
-  refreshToken?: string;
-}
-
-export interface AuthConfig {
-  clientId?: string;
-  clientSecret?: string;
-  tenantId?: string;
-  scopes?: string[];
-  redirectUri?: string;
-  apiKey?: string;
-}
-
-export interface AuthResponse {
-  accessToken: string;
-  refreshToken?: string;
-  expiresIn?: number;
-  tokenType?: string;
-}
-
-export interface AuthError {
-  code: string;
-  message: string;
-  details?: any;
-}
-
-export interface AuthState {
-  isAuthenticated: boolean;
-  token?: AuthToken;
-  error?: AuthError;
-}
-```
-
-```filepath:src/integrations/auth/auth.service.ts
-import { AuthConfig, AuthToken, AuthError, TokenType } from './types';
-import { KeychainService } from '../keychain/keychain.service';
+```filepath:src/integrations/auth/oauth.client.ts
+import { AuthenticationResult, ConfidentialClientApplication } from '@azure/msal-node';
+import { OAuth2Client } from 'google-auth-library';
+import { Keychain } from '../../utils/keychain';
 import { logger } from '../../utils/logger';
-import { CircuitBreaker } from 'opossum';
-import msal from '@azure/msal-node';
-import { v4 as uuidv4 } from 'uuid';
+import { MetricsService } from '../../services/metrics.service';
 
-export class AuthService {
-  private keychainService: KeychainService;
-  private circuitBreaker: CircuitBreaker;
-  private msalClient?: msal.ConfidentialClientApplication;
+export interface OAuthConfig {
+  clientId: string;
+  clientSecret: string;
+  tenantId?: string; // For Microsoft
+  scopes: string[];
+  redirectUri: string;
+}
+
+export class OAuthClient {
+  private msalClient: ConfidentialClientApplication | null = null;
+  private googleClient: OAuth2Client | null = null;
+  private metrics: MetricsService;
+  private keychain: Keychain;
 
   constructor() {
-    this.keychainService = new KeychainService();
-    
-    // Configure circuit breaker for token refresh operations
-    this.circuitBreaker = new CircuitBreaker(
-      async (token: AuthToken) => this.refreshTokenInternal(token),
-      {
-        timeout: 10000, // 10 second timeout
-        errorThresholdPercentage: 50,
-        resetTimeout: 30000, // 30 second reset
-      }
-    );
-
-    // Circuit breaker event handlers
-    this.circuitBreaker.on('open', () => {
-      logger.error('Auth circuit breaker opened - token refresh failing');
-    });
-
-    this.circuitBreaker.on('halfOpen', () => {
-      logger.info('Auth circuit breaker half-open - attempting reset');
-    });
-
-    this.circuitBreaker.on('close', () => {
-      logger.info('Auth circuit breaker closed - token refresh recovered');
-    });
+    this.metrics = new MetricsService();
+    this.keychain = new Keychain();
   }
 
-  /**
-   * Initialize MSAL client for OAuth flows
-   */
-  private initializeMsal(config: AuthConfig) {
-    if (!config.clientId || !config.clientSecret || !config.tenantId) {
-      throw new Error('Missing required MSAL configuration');
-    }
-
-    const msalConfig = {
-      auth: {
-        clientId: config.clientId,
-        clientSecret: config.clientSecret,
-        authority: `https://login.microsoftonline.com/${config.tenantId}`,
-      }
-    };
-
-    this.msalClient = new msal.ConfidentialClientApplication(msalConfig);
-  }
-
-  /**
-   * Store authentication token securely
-   */
-  async storeToken(serviceId: string, token: AuthToken): Promise<void> {
+  async initializeMicrosoftAuth(config: OAuthConfig): Promise<void> {
     try {
-      const key = `auth_token_${serviceId}`;
-      await this.keychainService.setSecret(key, JSON.stringify(token));
-      logger.info('Stored auth token successfully', { serviceId });
-    } catch (error) {
-      logger.error('Failed to store auth token', { serviceId, error });
-      throw new Error('Failed to store authentication token');
-    }
-  }
+      const { clientId, clientSecret, tenantId, scopes } = config;
 
-  /**
-   * Retrieve authentication token
-   */
-  async getToken(serviceId: string): Promise<AuthToken | null> {
-    try {
-      const key = `auth_token_${serviceId}`;
-      const tokenStr = await this.keychainService.getSecret(key);
-      
-      if (!tokenStr) {
-        return null;
-      }
-
-      const token = JSON.parse(tokenStr) as AuthToken;
-      
-      // Check if token is expired or will expire soon (5 min buffer)
-      if (token.expiresAt && new Date(token.expiresAt) < new Date(Date.now() + 300000)) {
-        return await this.refreshToken(serviceId, token);
-      }
-
-      return token;
-    } catch (error) {
-      logger.error('Failed to retrieve auth token', { serviceId, error });
-      return null;
-    }
-  }
-
-  /**
-   * Refresh an expired token
-   */
-  private async refreshToken(serviceId: string, token: AuthToken): Promise<AuthToken> {
-    try {
-      const newToken = await this.circuitBreaker.fire(token);
-      await this.storeToken(serviceId, newToken);
-      return newToken;
-    } catch (error) {
-      logger.error('Token refresh failed', { serviceId, error });
-      throw new Error('Failed to refresh authentication token');
-    }
-  }
-
-  /**
-   * Internal token refresh logic
-   */
-  private async refreshTokenInternal(token: AuthToken): Promise<AuthToken> {
-    if (!token.refreshToken) {
-      throw new Error('No refresh token available');
-    }
-
-    switch (token.type) {
-      case 'oauth':
-        // Implement OAuth refresh flow
-        throw new Error('OAuth refresh not implemented');
-
-      case 'msal':
-        if (!this.msalClient) {
-          throw new Error('MSAL client not initialized');
+      this.msalClient = new ConfidentialClientApplication({
+        auth: {
+          clientId,
+          clientSecret,
+          authority: `https://login.microsoftonline.com/${tenantId}`,
         }
+      });
 
-        const result = await this.msalClient.acquireTokenByRefreshToken({
-          refreshToken: token.refreshToken,
-          scopes: ['https://graph.microsoft.com/.default']
-        });
+      logger.info('Microsoft OAuth client initialized', {
+        clientId,
+        tenantId,
+        scopes
+      });
 
-        if (!result) {
-          throw new Error('Failed to refresh MSAL token');
-        }
-
-        return {
-          token: result.accessToken,
-          type: 'msal',
-          expiresAt: new Date(Date.now() + (result.expiresIn || 3600) * 1000),
-          refreshToken: result.refreshToken
-        };
-
-      default:
-        throw new Error(`Unsupported token type: ${token.type}`);
-    }
-  }
-
-  /**
-   * Remove stored token
-   */
-  async removeToken(serviceId: string): Promise<void> {
-    try {
-      const key = `auth_token_${serviceId}`;
-      await this.keychainService.deleteSecret(key);
-      logger.info('Removed auth token successfully', { serviceId });
+      this.metrics.increment('auth.microsoft.initialized');
     } catch (error) {
-      logger.error('Failed to remove auth token', { serviceId, error });
-      throw new Error('Failed to remove authentication token');
+      logger.error('Failed to initialize Microsoft OAuth client', { error });
+      this.metrics.increment('auth.microsoft.init_failed');
+      throw error;
     }
   }
 
-  /**
-   * Generate a new API key
-   */
-  async generateApiKey(): Promise<string> {
-    return uuidv4().replace(/-/g, '');
-  }
-
-  /**
-   * Validate API key format
-   */
-  validateApiKey(apiKey: string): boolean {
-    return /^[a-f0-9]{32}$/.test(apiKey);
-  }
-
-  /**
-   * Exchange OAuth code for tokens
-   */
-  async exchangeCodeForTokens(code: string, config: AuthConfig): Promise<AuthToken> {
+  async getMicrosoftToken(): Promise<string> {
     if (!this.msalClient) {
-      this.initializeMsal(config);
+      throw new Error('Microsoft OAuth client not initialized');
     }
 
     try {
-      const result = await this.msalClient!.acquireTokenByCode({
-        code,
-        scopes: config.scopes || [],
-        redirectUri: config.redirectUri,
+      const cachedToken = await this.keychain.get('microsoft_token');
+      if (cachedToken) {
+        // Check if token is still valid (expires in > 5 minutes)
+        const tokenData = JSON.parse(cachedToken);
+        const expiresAt = new Date(tokenData.expiresOn).getTime();
+        const now = Date.now();
+        if (expiresAt - now > 300000) {
+          return tokenData.accessToken;
+        }
+      }
+
+      const result = await this.msalClient.acquireTokenByClientCredential({
+        scopes: ['https://graph.microsoft.com/.default']
       });
 
       if (!result) {
-        throw new Error('Failed to exchange code for tokens');
+        throw new Error('Failed to acquire Microsoft token');
       }
 
-      const token: AuthToken = {
-        token: result.accessToken,
-        type: 'msal',
-        expiresAt: new Date(Date.now() + (result.expiresIn || 3600) * 1000),
-        refreshToken: result.refreshToken
-      };
+      await this.keychain.set('microsoft_token', JSON.stringify({
+        accessToken: result.accessToken,
+        expiresOn: result.expiresOn
+      }));
 
-      return token;
+      this.metrics.increment('auth.microsoft.token_acquired');
+      return result.accessToken;
     } catch (error) {
-      logger.error('Failed to exchange code for tokens', { error });
-      throw new Error('Failed to exchange authorization code');
+      logger.error('Failed to get Microsoft token', { error });
+      this.metrics.increment('auth.microsoft.token_failed');
+      throw error;
+    }
+  }
+
+  async initializeGoogleAuth(config: OAuthConfig): Promise<void> {
+    try {
+      const { clientId, clientSecret, redirectUri } = config;
+
+      this.googleClient = new OAuth2Client(
+        clientId,
+        clientSecret,
+        redirectUri
+      );
+
+      logger.info('Google OAuth client initialized', {
+        clientId,
+        redirectUri
+      });
+
+      this.metrics.increment('auth.google.initialized');
+    } catch (error) {
+      logger.error('Failed to initialize Google OAuth client', { error });
+      this.metrics.increment('auth.google.init_failed');
+      throw error;
+    }
+  }
+
+  async getGoogleToken(): Promise<string> {
+    if (!this.googleClient) {
+      throw new Error('Google OAuth client not initialized');
+    }
+
+    try {
+      const cachedToken = await this.keychain.get('google_token');
+      if (cachedToken) {
+        const tokenData = JSON.parse(cachedToken);
+        const expiresAt = tokenData.expiry_date;
+        const now = Date.now();
+        if (expiresAt - now > 300000) {
+          return tokenData.access_token;
+        }
+      }
+
+      const credentials = await this.keychain.get('google_credentials');
+      if (!credentials) {
+        throw new Error('Google credentials not found in keychain');
+      }
+
+      const { tokens } = await this.googleClient.getToken(JSON.parse(credentials));
+      await this.keychain.set('google_token', JSON.stringify(tokens));
+
+      this.metrics.increment('auth.google.token_acquired');
+      return tokens.access_token!;
+    } catch (error) {
+      logger.error('Failed to get Google token', { error });
+      this.metrics.increment('auth.google.token_failed');
+      throw error;
+    }
+  }
+
+  async revokeToken(provider: 'microsoft' | 'google'): Promise<void> {
+    try {
+      if (provider === 'microsoft') {
+        await this.keychain.delete('microsoft_token');
+      } else {
+        const token = await this.keychain.get('google_token');
+        if (token) {
+          const tokenData = JSON.parse(token);
+          await this.googleClient?.revokeToken(tokenData.access_token);
+        }
+        await this.keychain.delete('google_token');
+      }
+
+      logger.info(`Revoked ${provider} token`);
+      this.metrics.increment(`auth.${provider}.token_revoked`);
+    } catch (error) {
+      logger.error(`Failed to revoke ${provider} token`, { error });
+      this.metrics.increment(`auth.${provider}.revoke_failed`);
+      throw error;
     }
   }
 }
 ```
 
-```filepath:src/integrations/keychain/keychain.service.ts
-import keychain from 'keychain';
-import { promisify } from 'util';
+```filepath:src/integrations/external/api.client.ts
+import axios, { AxiosInstance, AxiosRequestConfig } from 'axios';
+import axiosRetry from 'axios-retry';
+import CircuitBreaker from 'opossum';
 import { logger } from '../../utils/logger';
+import { MetricsService } from '../../services/metrics.service';
+import { AppError } from '../../utils/errors';
 
-const SERVICE_NAME = 'com.company.exec-assistant';
+interface RetryConfig {
+  retries: number;
+  retryCondition?: (error: any) => boolean;
+  retryDelay?: (retryCount: number) => number;
+}
 
-export class KeychainService {
-  private getPassword: (service: string, account: string) => Promise<string>;
-  private setPassword: (service: string, account: string, password: string) => Promise<void>;
-  private deletePassword: (service: string, account: string) => Promise<void>;
+interface CircuitBreakerConfig {
+  timeout: number;
+  errorThreshold: number;
+  resetTimeout: number;
+}
 
-  constructor() {
-    // Promisify keychain methods
-    this.getPassword = promisify(keychain.getPassword);
-    this.setPassword = promisify(keychain.setPassword);
-    this.deletePassword = promisify(keychain.deletePassword);
+export class ExternalApiClient {
+  private client: AxiosInstance;
+  private circuitBreaker: CircuitBreaker;
+  private metrics: MetricsService;
+
+  constructor(
+    baseURL: string,
+    private readonly name: string,
+    retryConfig?: RetryConfig,
+    circuitConfig?: CircuitBreakerConfig
+  ) {
+    this.metrics = new MetricsService();
+
+    this.client = axios.create({
+      baseURL,
+      timeout: circuitConfig?.timeout || 10000,
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json'
+      }
+    });
+
+    axiosRetry(this.client, {
+      retries: retryConfig?.retries || 3,
+      retryDelay: retryConfig?.retryDelay || axiosRetry.exponentialDelay,
+      retryCondition: retryConfig?.retryCondition || axiosRetry.isNetworkOrIdempotentRequestError,
+      onRetry: (retryCount, error, requestConfig) => {
+        logger.warn(`Retrying ${this.name} API request`, {
+          retryCount,
+          url: requestConfig.url,
+          error: error.message
+        });
+        this.metrics.increment(`${this.name}.retry`, { url: requestConfig.url });
+      }
+    });
+
+    this.circuitBreaker = new CircuitBreaker(this.executeRequest.bind(this), {
+      timeout: circuitConfig?.timeout || 10000,
+      errorThresholdPercentage: circuitConfig?.errorThreshold || 50,
+      resetTimeout: circuitConfig?.resetTimeout || 30000
+    });
+
+    this.setupCircuitBreakerEvents();
+    this.setupInterceptors();
   }
 
-  /**
-   * Store secret in keychain
-   */
-  async setSecret(key: string, value: string): Prom
+  private setupCircuitBreakerEvents(): void {
+    this.circuitBreaker.on('open', () => {
+      logger.error(`${this.name} circuit breaker opened`);
+      this.metrics.increment(`${this.name}.circuit_breaker.open`);
+    });
+
+    this.circuitBreaker.on('halfOpen', () => {
+      logger.info(`${this.name} circuit breaker half-open`);
+      this.metrics.increment(`${this.name}.circuit_breaker.half_open`);
+    });
+
+    this.circuitBreaker.on('close', () => {
+      logger.info(`${this.name} circuit breaker closed`);
+      this.metrics.increment(`${this.name}.circuit_breaker.close`);
+    });
+  }
+
+  private setupInterceptors(): void {
+    this.client.interceptors.request.use(
+      (config) => {
+        const requestId = Math.random().toString(36).substring(7);
+        (config as any).requestId = requestId;
+        (config as any).startTime = Date.now();
+
+        logger.debug(`${this.name} API request`, {
+          method: config.method,
+          url: config.url,
+          requestId
+        });
+
+        return config;
+      },
+      (error) => {
+        logger.error(`${this.name} request error`, { error });
+        return Promise.reject(error);
+      }
+    );
+
+    this.client.interceptors.response.use(
+      (response) => {
+        const duration = Date.now() - (response.config as any).startTime;
+        const requestId = (response.config as any).requestId;
+
+        logger.debug(`${this.name} API response`, {
+          status: response.status,
+          url: response.config.url,
+          duration,
+          requestId
+        });
+
+        this.metrics.timing(`${this.name}.response_time`, duration);
+        return response;
+      },
+      (error) => {
+        this.handleApiError(error);
+        return Promise.reject(error);
+      }
+    );
+  }
+
+  private async executeRequest(config: AxiosRequestConfig): Promise<any> {
+    try {
+      return await this.client.request(config);
+    } catch (error) {
+      throw this.transformError(error);
+    }
+  }
+
+  private handleApiError(error: any): void {
+    if (axios.isAxiosError(error)) {
+      if (error.response) {
+        logger.error(`${this.name} API error response`, {
+          status: error.response.status,
+          data: error.response.data,
+          url: error.config?.url
+        });
+        this.metrics.increment(`${this.name}.error`, {
+          status: error.response.status.toString()
+        });
+      } else if (error.request) {
+        logger.error(`${this.name} API no response`, {
+          url: error.config?.url
+        });
+        this.metrics.incremen
