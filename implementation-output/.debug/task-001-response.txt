@@ -1,15 +1,376 @@
-I have completed all the required tasks for creating the database schemas and migrations. Here's a summary of what was created:
+Let me create the database schema and migrations for this specification. I'll break this into multiple files using TypeORM entities and migrations.
 
-1. Schema file (prisma/schema.prisma): Defines all entities with their fields, relationships, and constraints using Prisma schema.
-2. Migration file: Creates the initial database schema with all required tables, indexes, constraints and triggers.
-3. Seed file: Provides test data for development environment.
-4. Migration tests: Comprehensive tests that verify all database constraints and functionality.
+```filepath:src/entities/item.entity.ts
+import {
+  Entity,
+  PrimaryGeneratedColumn,
+  Column,
+  CreateDateColumn,
+  UpdateDateColumn,
+  ManyToOne,
+  JoinColumn,
+  OneToMany,
+  Check,
+  Index
+} from 'typeorm';
+import { Person } from './person.entity';
+import { ManualEdit } from './manual-edit.entity';
+import { LearningFeedback } from './learning-feedback.entity';
+import { Relationship } from './relationship.entity';
 
-The implementation follows all the requirements from the specification including:
-- Data integrity through constraints and validation
-- Proper relationships between entities
-- Audit trail functionality
-- Security considerations
-- Performance optimization through appropriate indexes
-- Full test coverage
-- Support for all required features like priority tracking, relationship mapping, etc.
+export type ItemType = 'ask' | 'commitment' | 'action';
+export type ItemPriority = 'low' | 'medium' | 'high';
+export type ItemPrioritySource = 'ai' | 'manual';
+export type ItemStatus = 'pending' | 'in_progress' | 'completed' | 'cancelled';
+export type SourceType = 'email' | 'slack' | 'zoom';
+
+@Entity('items')
+@Index('idx_items_source', ['sourceType', 'sourceId'], { unique: true })
+@Index('idx_items_priority', ['priority', 'prioritySource'])
+@Index('idx_items_status', ['status'])
+@Index('idx_items_flagged', ['flaggedForFollowup'])
+@Index('idx_items_archived', ['archived'])
+@Check(`"confidenceScore" >= 0 AND "confidenceScore" <= 1`)
+@Check(`"status" IN ('pending', 'in_progress', 'completed', 'cancelled')`)
+@Check(`"priority" IN ('low', 'medium', 'high')`)
+@Check(`"prioritySource" IN ('ai', 'manual')`)
+@Check(`"type" IN ('ask', 'commitment', 'action')`)
+export class Item {
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
+
+  @Column({
+    type: 'enum',
+    enum: ['ask', 'commitment', 'action'],
+    nullable: false
+  })
+  type: ItemType;
+
+  @Column({
+    type: 'varchar',
+    length: 200,
+    nullable: false
+  })
+  @Index('idx_items_title')
+  title: string;
+
+  @Column({
+    type: 'varchar',
+    length: 2000,
+    nullable: false
+  })
+  description: string;
+
+  @Column({
+    type: 'enum',
+    enum: ['low', 'medium', 'high'],
+    nullable: false
+  })
+  priority: ItemPriority;
+
+  @Column({
+    type: 'enum',
+    enum: ['ai', 'manual'],
+    nullable: false,
+    default: 'ai'
+  })
+  prioritySource: ItemPrioritySource;
+
+  @Column({
+    type: 'enum',
+    enum: ['pending', 'in_progress', 'completed', 'cancelled'],
+    nullable: false,
+    default: 'pending'
+  })
+  status: ItemStatus;
+
+  @Column({ type: 'uuid', nullable: false })
+  responsiblePersonId: string;
+
+  @ManyToOne(() => Person, person => person.items, { onDelete: 'RESTRICT' })
+  @JoinColumn({ name: 'responsiblePersonId' })
+  responsiblePerson: Person;
+
+  @Column({
+    type: 'decimal',
+    precision: 3,
+    scale: 2,
+    nullable: false
+  })
+  confidenceScore: number;
+
+  @Column({
+    type: 'enum',
+    enum: ['email', 'slack', 'zoom'],
+    nullable: false
+  })
+  sourceType: SourceType;
+
+  @Column({
+    type: 'varchar',
+    length: 255,
+    nullable: false
+  })
+  sourceId: string;
+
+  @Column({
+    type: 'varchar',
+    length: 2048,
+    nullable: true
+  })
+  sourceUrl: string | null;
+
+  @Column({
+    type: 'timestamp with time zone',
+    nullable: true
+  })
+  dueDate: Date | null;
+
+  @Column({
+    type: 'timestamp with time zone',
+    nullable: true
+  })
+  completedAt: Date | null;
+
+  @Column({
+    type: 'boolean',
+    default: false,
+    nullable: false
+  })
+  flaggedForFollowup: boolean;
+
+  @Column({
+    type: 'timestamp with time zone',
+    nullable: true
+  })
+  flaggedAt: Date | null;
+
+  @Column({
+    type: 'boolean',
+    default: false,
+    nullable: false
+  })
+  archived: boolean;
+
+  @Column({
+    type: 'timestamp with time zone',
+    nullable: true
+  })
+  archivedAt: Date | null;
+
+  @Column({
+    type: 'boolean',
+    default: false,
+    nullable: false
+  })
+  historicalImport: boolean;
+
+  @CreateDateColumn({
+    type: 'timestamp with time zone',
+    nullable: false
+  })
+  createdAt: Date;
+
+  @UpdateDateColumn({
+    type: 'timestamp with time zone',
+    nullable: false
+  })
+  updatedAt: Date;
+
+  @OneToMany(() => ManualEdit, edit => edit.item)
+  manualEdits: ManualEdit[];
+
+  @OneToMany(() => LearningFeedback, feedback => feedback.item)
+  learningFeedback: LearningFeedback[];
+
+  @OneToMany(() => Relationship, relationship => relationship.parentItem)
+  childRelationships: Relationship[];
+
+  @OneToMany(() => Relationship, relationship => relationship.childItem)
+  parentRelationships: Relationship[];
+}
+```
+
+```filepath:src/entities/person.entity.ts
+import {
+  Entity,
+  PrimaryGeneratedColumn,
+  Column,
+  CreateDateColumn,
+  UpdateDateColumn,
+  OneToMany,
+  Index
+} from 'typeorm';
+import { Item } from './item.entity';
+
+@Entity('persons')
+export class Person {
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
+
+  @Column({
+    type: 'varchar',
+    length: 100,
+    nullable: false
+  })
+  @Index('idx_persons_name')
+  name: string;
+
+  @Column({
+    type: 'varchar',
+    length: 255,
+    nullable: true,
+    unique: true
+  })
+  @Index('idx_persons_email', { unique: true, where: 'email IS NOT NULL' })
+  email: string | null;
+
+  @Column({
+    type: 'varchar',
+    length: 50,
+    nullable: true
+  })
+  @Index('idx_persons_slack', { unique: true, where: 'slack_user_id IS NOT NULL' })
+  slackUserId: string | null;
+
+  @Column({
+    type: 'varchar',
+    length: 50,
+    nullable: true
+  })
+  @Index('idx_persons_zoom', { unique: true, where: 'zoom_user_id IS NOT NULL' })
+  zoomUserId: string | null;
+
+  @CreateDateColumn({
+    type: 'timestamp with time zone',
+    nullable: false
+  })
+  createdAt: Date;
+
+  @UpdateDateColumn({
+    type: 'timestamp with time zone',
+    nullable: false
+  })
+  updatedAt: Date;
+
+  @OneToMany(() => Item, item => item.responsiblePerson)
+  items: Item[];
+}
+```
+
+```filepath:src/entities/relationship.entity.ts
+import {
+  Entity,
+  PrimaryGeneratedColumn,
+  Column,
+  CreateDateColumn,
+  ManyToOne,
+  JoinColumn,
+  Check,
+  Index
+} from 'typeorm';
+import { Item } from './item.entity';
+
+export type RelationshipType = 'ask_to_commitment' | 'commitment_to_action';
+
+@Entity('relationships')
+@Check(`"relationshipType" IN ('ask_to_commitment', 'commitment_to_action')`)
+@Check(`"confidenceScore" >= 0 AND "confidenceScore" <= 1`)
+@Check(`"parentItemId" <> "childItemId"`)
+export class Relationship {
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
+
+  @Column({ type: 'uuid', nullable: false })
+  @Index('idx_relationships_parent')
+  parentItemId: string;
+
+  @Column({ type: 'uuid', nullable: false })
+  @Index('idx_relationships_child')
+  childItemId: string;
+
+  @Column({
+    type: 'enum',
+    enum: ['ask_to_commitment', 'commitment_to_action'],
+    nullable: false
+  })
+  relationshipType: RelationshipType;
+
+  @Column({
+    type: 'decimal',
+    precision: 3,
+    scale: 2,
+    nullable: false
+  })
+  confidenceScore: number;
+
+  @CreateDateColumn({
+    type: 'timestamp with time zone',
+    nullable: false
+  })
+  createdAt: Date;
+
+  @ManyToOne(() => Item, item => item.childRelationships, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'parentItemId' })
+  parentItem: Item;
+
+  @ManyToOne(() => Item, item => item.parentRelationships, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'childItemId' })
+  childItem: Item;
+}
+```
+
+```filepath:src/entities/manual-edit.entity.ts
+import {
+  Entity,
+  PrimaryGeneratedColumn,
+  Column,
+  CreateDateColumn,
+  ManyToOne,
+  JoinColumn,
+  Index
+} from 'typeorm';
+import { Item } from './item.entity';
+
+@Entity('manual_edits')
+export class ManualEdit {
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
+
+  @Column({ type: 'uuid', nullable: false })
+  @Index('idx_manual_edits_item')
+  itemId: string;
+
+  @Column({
+    type: 'varchar',
+    length: 100,
+    nullable: false
+  })
+  fieldName: string;
+
+  @Column({
+    type: 'jsonb',
+    nullable: false
+  })
+  oldValue: string;
+
+  @Column({
+    type: 'jsonb',
+    nullable: false
+  })
+  newValue: string;
+
+  @CreateDateColumn({
+    type: 'timestamp with time zone',
+    nullable: false,
+    name: 'edited_at'
+  })
+  editedAt: Date;
+
+  @ManyToOne(() => Item, item => item.manualEdits, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'itemId' })
+  item: Item;
+}
+```
+
+```filepath:src/entities/learning-feedback.entity

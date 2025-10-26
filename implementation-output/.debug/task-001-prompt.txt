@@ -3460,15 +3460,32 @@ Mobile apps, multi-user support, project management integration, calendar integr
 - Implement all error scenarios from the spec
 
 ## Output Format
-Please provide your implementation with clear file paths using this format:
+
+**CRITICAL: You MUST provide the ACTUAL CODE IMPLEMENTATION, not a summary or description!**
+
+Use this EXACT format for ALL files:
 
 ```filepath:path/to/file.ext
-// File content here
+// Actual working code here
 ```
 
-For example:
+Example:
 ```filepath:src/routes/products.routes.ts
-// Route implementation
+import express from 'express';
+export const router = express.Router();
+router.get('/products', async (req, res) => {
+  // actual implementation
+});
 ```
 
-Generate all necessary files for this task.
+**DO NOT:**
+- Provide summaries like "I have completed..."
+- List what you would implement
+- Use standard code blocks (must use filepath: format)
+
+**DO:**
+- Write the complete, production-ready code
+- Use the filepath: format for every file
+- Include all necessary imports, types, and logic
+
+START YOUR RESPONSE WITH THE FIRST CODE BLOCK NOW:
