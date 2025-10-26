@@ -1,291 +1,242 @@
-```filepath:tests/migrations/001_initial_schema_test.sql
--- Test data setup
-BEGIN;
+Let me implement the database schema and migrations based on the specification. I'll create the files in sequence using SQLite and TypeORM.
 
--- Test inserting valid person
-INSERT INTO persons (name, email)
-VALUES ('Test User', 'test@example.com');
+```filepath:src/entities/Base.entity.ts
+import { PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn, Column } from 'typeorm';
 
--- Test person validation rules
-DO $$
-BEGIN
-    -- Test empty name
-    BEGIN
-        INSERT INTO persons (name, email) VALUES ('', 'invalid@example.com');
-        RAISE EXCEPTION 'Expected error for empty name';
-    EXCEPTION WHEN check_violation THEN
-        -- Expected
-    END;
+export abstract class BaseEntity {
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
 
-    -- Test invalid email
-    BEGIN
-        INSERT INTO persons (name, email) VALUES ('Invalid Email', 'not-an-email');
-        RAISE EXCEPTION 'Expected error for invalid email';
-    EXCEPTION WHEN check_violation THEN
-        -- Expected
-    END;
+  @CreateDateColumn({ type: 'datetime' })
+  created_at: Date;
 
-    -- Test no identifier
-    BEGIN
-        INSERT INTO persons (name) VALUES ('No Identifier');
-        RAISE EXCEPTION 'Expected error for missing identifier';
-    EXCEPTION WHEN check_violation THEN
-        -- Expected
-    END;
-END $$;
-
--- Test item creation and validation
-DO $$
-DECLARE
-    person_id UUID;
-BEGIN
-    SELECT id INTO person_id FROM persons LIMIT 1;
-
-    -- Test valid item
-    INSERT INTO items (
-        type, title, description, priority, priority_source, status,
-        responsible_person_id, confidence_score, source_type, source_id
-    )
-    VALUES (
-        'ask', 'Test Item', 'Description', 'high', 'ai', 'pending',
-        person_id, 0.95, 'email', 'test-source-1'
-    );
-
-    -- Test invalid type
-    BEGIN
-        INSERT INTO items (
-            type, title, description, priority, priority_source, status,
-            responsible_person_id, confidence_score, source_type, source_id
-        )
-        VALUES (
-            'invalid', 'Test Item', 'Description', 'high', 'ai', 'pending',
-            person_id, 0.95, 'email', 'test-source-2'
-        );
-        RAISE EXCEPTION 'Expected error for invalid type';
-    EXCEPTION WHEN check_violation THEN
-        -- Expected
-    END;
-
-    -- Test confidence score range
-    BEGIN
-        INSERT INTO items (
-            type, title, description, priority, priority_source, status,
-            responsible_person_id, confidence_score, source_type, source_id
-        )
-        VALUES (
-            'ask', 'Test Item', 'Description', 'high', 'ai', 'pending',
-            person_id, 1.5, 'email', 'test-source-3'
-        );
-        RAISE EXCEPTION 'Expected error for invalid confidence score';
-    EXCEPTION WHEN check_violation THEN
-        -- Expected
-    END;
-END $$;
-
--- Test relationships
-DO $$
-DECLARE
-    person_id UUID;
-    ask_id UUID;
-    commitment_id UUID;
-    action_id UUID;
-BEGIN
-    SELECT id INTO person_id FROM persons LIMIT 1;
-
-    -- Create ask
-    INSERT INTO items (
-        type, title, description, priority, priority_source, status,
-        responsible_person_id, confidence_score, source_type, source_id
-    )
-    VALUES (
-        'ask', 'Test Ask', 'Description', 'high', 'ai', 'pending',
-        person_id, 0.95, 'email', 'test-source-ask'
-    )
-    RETURNING id INTO ask_id;
-
-    -- Create commitment
-    INSERT INTO items (
-        type, title, description, priority, priority_source, status,
-        responsible_person_id, confidence_score, source_type, source_id
-    )
-    VALUES (
-        'commitment', 'Test Commitment', 'Description', 'high', 'ai', 'pending',
-        person_id, 0.95, 'email', 'test-source-commitment'
-    )
-    RETURNING id INTO commitment_id;
-
-    -- Create action
-    INSERT INTO items (
-        type, title, description, priority, priority_source, status,
-        responsible_person_id, confidence_score, source_type, source_id
-    )
-    VALUES (
-        'action', 'Test Action', 'Description', 'high', 'ai', 'pending',
-        person_id, 0.95, 'email', 'test-source-action'
-    )
-    RETURNING id INTO action_id;
-
-    -- Test valid relationships
-    INSERT INTO relationships (parent_item_id, child_item_id, relationship_type, confidence_score)
-    VALUES (ask_id, commitment_id, 'ask_to_commitment', 0.9);
-
-    INSERT INTO relationships (parent_item_id, child_item_id, relationship_type, confidence_score)
-    VALUES (commitment_id, action_id, 'commitment_to_action', 0.9);
-
-    -- Test invalid relationship type
-    BEGIN
-        INSERT INTO relationships (parent_item_id, child_item_id, relationship_type, confidence_score)
-        VALUES (ask_id, action_id, 'ask_to_action', 0.9);
-        RAISE EXCEPTION 'Expected error for invalid relationship type';
-    EXCEPTION WHEN check_violation THEN
-        -- Expected
-    END;
-
-    -- Test circular relationship
-    BEGIN
-        INSERT INTO relationships (parent_item_id, child_item_id, relationship_type, confidence_score)
-        VALUES (action_id, ask_id, 'ask_to_commitment', 0.9);
-        RAISE EXCEPTION 'Expected error for circular relationship';
-    EXCEPTION WHEN raise_exception THEN
-        -- Expected 'Circular relationship detected'
-    END;
-END $$;
-
--- Test manual edits
-DO $$
-DECLARE
-    item_id UUID;
-BEGIN
-    SELECT id INTO item_id FROM items LIMIT 1;
-
-    INSERT INTO manual_edits (item_id, field_name, old_value, new_value)
-    VALUES (item_id, 'priority', '"medium"', '"high"');
-END $$;
-
--- Test learning feedback
-DO $$
-DECLARE
-    item_id UUID;
-BEGIN
-    SELECT id INTO item_id FROM items LIMIT 1;
-
-    INSERT INTO learning_feedback (
-        item_id, feedback_type, ai_prediction, user_correction
-    )
-    VALUES (
-        item_id,
-        'priority_correction',
-        '{"priority": "medium", "confidence": 0.8}',
-        '{"priority": "high", "reason": "CEO involvement"}'
-    );
-
-    -- Test invalid JSON
-    BEGIN
-        INSERT INTO learning_feedback (
-            item_id, feedback_type, ai_prediction, user_correction
-        )
-        VALUES (
-            item_id,
-            'priority_correction',
-            'not-json',
-            '{"priority": "high"}'
-        );
-        RAISE EXCEPTION 'Expected error for invalid JSON';
-    EXCEPTION WHEN check_violation THEN
-        -- Expected
-    END;
-END $$;
-
--- Test jobs
-DO $$
-BEGIN
-    INSERT INTO jobs (job_type, source_id, status, payload)
-    VALUES (
-        'process_email',
-        'email:123',
-        'pending',
-        '{"subject": "Test", "body": "Test email"}'
-    );
-
-    -- Test retry count limit
-    BEGIN
-        INSERT INTO jobs (job_type, source_id, status, payload, retry_count)
-        VALUES (
-            'process_email',
-            'email:124',
-            'failed',
-            '{"subject": "Test", "body": "Test email"}',
-            4
-        );
-        RAISE EXCEPTION 'Expected error for retry count > 3';
-    EXCEPTION WHEN check_violation THEN
-        -- Expected
-    END;
-END $$;
-
--- Test full-text search
-DO $$
-DECLARE
-    person_id UUID;
-    search_result UUID;
-BEGIN
-    SELECT id INTO person_id FROM persons LIMIT 1;
-
-    INSERT INTO items (
-        type, title, description, priority, priority_source, status,
-        responsible_person_id, confidence_score, source_type, source_id
-    )
-    VALUES (
-        'ask',
-        'Search Test Item',
-        'This is a test description for full-text search',
-        'high', 'ai', 'pending',
-        person_id, 0.95, 'email', 'test-source-search'
-    );
-
-    -- Test full-text search
-    SELECT id INTO search_result
-    FROM items
-    WHERE to_tsvector('english', title || ' ' || description) @@ to_tsquery('english', 'test & search');
-
-    IF search_result IS NULL THEN
-        RAISE EXCEPTION 'Full-text search failed to find inserted item';
-    END IF;
-END $$;
-
-ROLLBACK;
+  @UpdateDateColumn({ type: 'datetime' })
+  updated_at: Date;
+}
 ```
 
-This implementation includes:
+```filepath:src/entities/Person.entity.ts
+import { Entity, Column, Index, OneToMany } from 'typeorm';
+import { BaseEntity } from './Base.entity';
+import { Item } from './Item.entity';
 
-1. A complete SQL migration script that creates all required tables with:
-   - Appropriate data types and constraints
-   - Foreign key relationships
-   - Indexes for common queries
-   - Full-text search capabilities
-   - Validation triggers
-   - Automatic timestamp updates
-   - Cycle detection in relationships
+@Entity('persons')
+export class Person extends BaseEntity {
+  @Column({ type: 'varchar', length: 100, nullable: false })
+  name: string;
 
-2. A comprehensive test file that verifies:
-   - Data validation rules
-   - Relationship constraints
-   - JSON validation
-   - Full-text search functionality
-   - Cycle detection
-   - All error cases from the specification
+  @Column({ type: 'varchar', length: 255, nullable: true, unique: true })
+  @Index('idx_person_email', { unique: true, where: "email IS NOT NULL" })
+  email: string;
 
-The schema follows all the requirements from the specification including:
-- UUID primary keys
-- Proper timestamps with time zones
-- Audit trails
-- Relationship tracking
-- Job queuing
-- Learning feedback
-- Manual edit history
-- Priority and status tracking
-- Cross-platform person identification
+  @Column({ type: 'varchar', length: 50, nullable: true })
+  @Index('idx_person_slack_id', { unique: true, where: "slack_user_id IS NOT NULL" })
+  slack_user_id: string;
 
-All validation rules are enforced at the database level for maximum data integrity.
+  @Column({ type: 'varchar', length: 50, nullable: true })
+  @Index('idx_person_zoom_id', { unique: true, where: "zoom_user_id IS NOT NULL" })
+  zoom_user_id: string;
 
-Let me know if you need any modifications or have questions about specific parts of the implementation.
+  @OneToMany(() => Item, item => item.responsible_person)
+  items: Item[];
+}
+```
+
+```filepath:src/entities/Item.entity.ts
+import { Entity, Column, ManyToOne, JoinColumn, Index, Check, OneToMany } from 'typeorm';
+import { BaseEntity } from './Base.entity';
+import { Person } from './Person.entity';
+import { Relationship } from './Relationship.entity';
+import { ManualEdit } from './ManualEdit.entity';
+import { LearningFeedback } from './LearningFeedback.entity';
+
+export type ItemType = 'ask' | 'commitment' | 'action';
+export type ItemPriority = 'low' | 'medium' | 'high';
+export type ItemStatus = 'pending' | 'in_progress' | 'completed' | 'cancelled';
+export type SourceType = 'email' | 'slack' | 'zoom';
+
+@Entity('items')
+@Index('idx_items_source', ['source_type', 'source_id'], { unique: true })
+@Index('idx_items_status', ['status'])
+@Index('idx_items_priority', ['priority'])
+@Index('idx_items_due_date', ['due_date'])
+@Check(`"type" IN ('ask', 'commitment', 'action')`)
+@Check(`"priority" IN ('low', 'medium', 'high')`)
+@Check(`"status" IN ('pending', 'in_progress', 'completed', 'cancelled')`)
+@Check(`"confidence_score" >= 0 AND "confidence_score" <= 1`)
+export class Item extends BaseEntity {
+  @Column({ type: 'varchar', length: 200, nullable: false })
+  title: string;
+
+  @Column({ type: 'text', nullable: false })
+  description: string;
+
+  @Column({ type: 'varchar', length: 20, nullable: false })
+  type: ItemType;
+
+  @Column({ type: 'varchar', length: 20, nullable: false })
+  priority: ItemPriority;
+
+  @Column({ type: 'varchar', length: 10, nullable: false, default: 'ai' })
+  priority_source: 'ai' | 'manual';
+
+  @Column({ type: 'varchar', length: 20, nullable: false })
+  status: ItemStatus;
+
+  @Column({ type: 'uuid', nullable: false })
+  responsible_person_id: string;
+
+  @ManyToOne(() => Person, person => person.items, { onDelete: 'RESTRICT' })
+  @JoinColumn({ name: 'responsible_person_id' })
+  responsible_person: Person;
+
+  @Column({ type: 'decimal', precision: 3, scale: 2, nullable: false })
+  confidence_score: number;
+
+  @Column({ type: 'varchar', length: 10, nullable: false })
+  source_type: SourceType;
+
+  @Column({ type: 'varchar', length: 255, nullable: false })
+  source_id: string;
+
+  @Column({ type: 'varchar', length: 1000, nullable: true })
+  source_url: string;
+
+  @Column({ type: 'datetime', nullable: true })
+  due_date: Date;
+
+  @Column({ type: 'datetime', nullable: true })
+  completed_at: Date;
+
+  @Column({ type: 'boolean', default: false })
+  flagged_for_followup: boolean;
+
+  @Column({ type: 'datetime', nullable: true })
+  flagged_at: Date;
+
+  @Column({ type: 'boolean', default: false })
+  archived: boolean;
+
+  @Column({ type: 'datetime', nullable: true })
+  archived_at: Date;
+
+  @Column({ type: 'boolean', default: false })
+  historical_import: boolean;
+
+  @OneToMany(() => Relationship, relationship => relationship.parent_item)
+  child_relationships: Relationship[];
+
+  @OneToMany(() => Relationship, relationship => relationship.child_item)
+  parent_relationships: Relationship[];
+
+  @OneToMany(() => ManualEdit, edit => edit.item)
+  manual_edits: ManualEdit[];
+
+  @OneToMany(() => LearningFeedback, feedback => feedback.item)
+  learning_feedback: LearningFeedback[];
+}
+```
+
+```filepath:src/entities/Relationship.entity.ts
+import { Entity, Column, ManyToOne, JoinColumn, Index, Check } from 'typeorm';
+import { BaseEntity } from './Base.entity';
+import { Item } from './Item.entity';
+
+export type RelationshipType = 'ask_to_commitment' | 'commitment_to_action';
+
+@Entity('relationships')
+@Index('idx_relationship_parent_child', ['parent_item_id', 'child_item_id'], { unique: true })
+@Check(`"relationship_type" IN ('ask_to_commitment', 'commitment_to_action')`)
+@Check(`"confidence_score" >= 0 AND "confidence_score" <= 1`)
+export class Relationship extends BaseEntity {
+  @Column({ type: 'uuid', nullable: false })
+  parent_item_id: string;
+
+  @Column({ type: 'uuid', nullable: false })
+  child_item_id: string;
+
+  @Column({ type: 'varchar', length: 30, nullable: false })
+  relationship_type: RelationshipType;
+
+  @Column({ type: 'decimal', precision: 3, scale: 2, nullable: false })
+  confidence_score: number;
+
+  @ManyToOne(() => Item, item => item.child_relationships, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'parent_item_id' })
+  parent_item: Item;
+
+  @ManyToOne(() => Item, item => item.parent_relationships, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'child_item_id' })
+  child_item: Item;
+}
+```
+
+```filepath:src/entities/ManualEdit.entity.ts
+import { Entity, Column, ManyToOne, JoinColumn, Index } from 'typeorm';
+import { BaseEntity } from './Base.entity';
+import { Item } from './Item.entity';
+
+@Entity('manual_edits')
+@Index('idx_manual_edits_item', ['item_id'])
+export class ManualEdit extends BaseEntity {
+  @Column({ type: 'uuid', nullable: false })
+  item_id: string;
+
+  @Column({ type: 'varchar', length: 50, nullable: false })
+  field_name: string;
+
+  @Column({ type: 'text', nullable: false })
+  old_value: string;
+
+  @Column({ type: 'text', nullable: false })
+  new_value: string;
+
+  @Column({ type: 'datetime', nullable: false })
+  edited_at: Date;
+
+  @ManyToOne(() => Item, item => item.manual_edits, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'item_id' })
+  item: Item;
+}
+```
+
+```filepath:src/entities/LearningFeedback.entity.ts
+import { Entity, Column, ManyToOne, JoinColumn, Index, Check } from 'typeorm';
+import { BaseEntity } from './Base.entity';
+import { Item } from './Item.entity';
+
+export type FeedbackType = 'priority_correction' | 'false_positive' | 'relationship_correction';
+
+@Entity('learning_feedback')
+@Index('idx_learning_feedback_item', ['item_id'])
+@Check(`"feedback_type" IN ('priority_correction', 'false_positive', 'relationship_correction')`)
+export class LearningFeedback extends BaseEntity {
+  @Column({ type: 'uuid', nullable: false })
+  item_id: string;
+
+  @Column({ type: 'varchar', length: 30, nullable: false })
+  feedback_type: FeedbackType;
+
+  @Column({ type: 'text', nullable: false })
+  ai_prediction: string;
+
+  @Column({ type: 'text', nullable: false })
+  user_correction: string;
+
+  @ManyToOne(() => Item, item => item.learning_feedback, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'item_id' })
+  item: Item;
+}
+```
+
+```filepath:src/entities/Job.entity.ts
+import { Entity, Column, Index, Check } from 'typeorm';
+import { BaseEntity } from './Base.entity';
+
+export type JobType = 'process_email' | 'process_slack' | 'process_zoom';
+export type JobStatus = 'pending' | 'processing' | 'completed' | 'failed';
+
+@Entity('jobs')
+@Index('idx_jobs_source', ['source_id'], { unique: true })
+@Index('idx_jobs_status', ['status'])
+@Check(`"job_type" IN ('

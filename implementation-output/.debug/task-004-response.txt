@@ -1,323 +1,232 @@
-Let me help implement the integration adapters for this AI Executive Assistant system. I'll start with the core integration components needed to handle authentication and external service connectivity.
+```filepath:implementation-output/src/entities/Base.entity.ts
+import { CreateDateColumn, UpdateDateColumn, PrimaryColumn } from 'typeorm';
+import { v4 as uuid } from 'uuid';
 
-```filepath:src/integrations/auth/oauth.client.ts
-import { AuthenticationResult, ConfidentialClientApplication } from '@azure/msal-node';
-import { OAuth2Client } from 'google-auth-library';
-import { Keychain } from '../../utils/keychain';
-import { logger } from '../../utils/logger';
-import { MetricsService } from '../../services/metrics.service';
+export abstract class BaseEntity {
+  @PrimaryColumn('uuid')
+  id: string = uuid();
 
-export interface OAuthConfig {
-  clientId: string;
-  clientSecret: string;
-  tenantId?: string; // For Microsoft
-  scopes: string[];
-  redirectUri: string;
+  @CreateDateColumn()
+  created_at: Date;
+
+  @UpdateDateColumn()
+  updated_at: Date;
 }
+```
 
-export class OAuthClient {
-  private msalClient: ConfidentialClientApplication | null = null;
-  private googleClient: OAuth2Client | null = null;
-  private metrics: MetricsService;
-  private keychain: Keychain;
+```filepath:implementation-output/src/entities/item.entity.ts
+import { Entity, Column, ManyToOne, OneToMany, Index } from 'typeorm';
+import { BaseEntity } from './Base.entity';
+import { Person } from './person.entity';
+import { Relationship } from './relationship.entity';
+import { ManualEdit } from './ManualEdit.entity';
+import { LearningFeedback } from './LearningFeedback.entity';
 
-  constructor() {
-    this.metrics = new MetricsService();
-    this.keychain = new Keychain();
-  }
+export type ItemType = 'ask' | 'commitment' | 'action';
+export type ItemPriority = 'low' | 'medium' | 'high';
+export type ItemStatus = 'pending' | 'in_progress' | 'completed' | 'cancelled';
+export type SourceType = 'email' | 'slack' | 'zoom';
+export type PrioritySource = 'ai' | 'manual';
 
-  async initializeMicrosoftAuth(config: OAuthConfig): Promise<void> {
-    try {
-      const { clientId, clientSecret, tenantId, scopes } = config;
+@Entity()
+export class Item extends BaseEntity {
+  @Column({ length: 200 })
+  title: string;
 
-      this.msalClient = new ConfidentialClientApplication({
-        auth: {
-          clientId,
-          clientSecret,
-          authority: `https://login.microsoftonline.com/${tenantId}`,
-        }
-      });
+  @Column({ length: 2000 })
+  description: string;
 
-      logger.info('Microsoft OAuth client initialized', {
-        clientId,
-        tenantId,
-        scopes
-      });
+  @Column({ type: 'enum', enum: ['ask', 'commitment', 'action'] })
+  type: ItemType;
 
-      this.metrics.increment('auth.microsoft.initialized');
-    } catch (error) {
-      logger.error('Failed to initialize Microsoft OAuth client', { error });
-      this.metrics.increment('auth.microsoft.init_failed');
-      throw error;
-    }
-  }
+  @Column({ type: 'enum', enum: ['low', 'medium', 'high'] })
+  priority: ItemPriority;
 
-  async getMicrosoftToken(): Promise<string> {
-    if (!this.msalClient) {
-      throw new Error('Microsoft OAuth client not initialized');
-    }
+  @Column({ type: 'enum', enum: ['ai', 'manual'] })
+  priority_source: PrioritySource;
 
-    try {
-      const cachedToken = await this.keychain.get('microsoft_token');
-      if (cachedToken) {
-        // Check if token is still valid (expires in > 5 minutes)
-        const tokenData = JSON.parse(cachedToken);
-        const expiresAt = new Date(tokenData.expiresOn).getTime();
-        const now = Date.now();
-        if (expiresAt - now > 300000) {
-          return tokenData.accessToken;
-        }
-      }
+  @Column({ type: 'enum', enum: ['pending', 'in_progress', 'completed', 'cancelled'] })
+  status: ItemStatus;
 
-      const result = await this.msalClient.acquireTokenByClientCredential({
-        scopes: ['https://graph.microsoft.com/.default']
-      });
+  @ManyToOne(() => Person, person => person.items)
+  responsible_person: Person;
 
-      if (!result) {
-        throw new Error('Failed to acquire Microsoft token');
-      }
+  @Column('float', { 
+    check: 'confidence_score >= 0 AND confidence_score <= 1'
+  })
+  confidence_score: number;
 
-      await this.keychain.set('microsoft_token', JSON.stringify({
-        accessToken: result.accessToken,
-        expiresOn: result.expiresOn
-      }));
+  @Column({ type: 'enum', enum: ['email', 'slack', 'zoom'] })
+  source_type: SourceType;
 
-      this.metrics.increment('auth.microsoft.token_acquired');
-      return result.accessToken;
-    } catch (error) {
-      logger.error('Failed to get Microsoft token', { error });
-      this.metrics.increment('auth.microsoft.token_failed');
-      throw error;
-    }
-  }
+  @Index({ unique: true })
+  @Column()
+  source_id: string;
 
-  async initializeGoogleAuth(config: OAuthConfig): Promise<void> {
-    try {
-      const { clientId, clientSecret, redirectUri } = config;
+  @Column({ nullable: true })
+  source_url?: string;
 
-      this.googleClient = new OAuth2Client(
-        clientId,
-        clientSecret,
-        redirectUri
-      );
+  @Column({ nullable: true, type: 'timestamp' })
+  due_date?: Date;
 
-      logger.info('Google OAuth client initialized', {
-        clientId,
-        redirectUri
-      });
+  @Column({ nullable: true, type: 'timestamp' })
+  completed_at?: Date;
 
-      this.metrics.increment('auth.google.initialized');
-    } catch (error) {
-      logger.error('Failed to initialize Google OAuth client', { error });
-      this.metrics.increment('auth.google.init_failed');
-      throw error;
-    }
-  }
+  @Column({ default: false })
+  flagged_for_followup: boolean;
 
-  async getGoogleToken(): Promise<string> {
-    if (!this.googleClient) {
-      throw new Error('Google OAuth client not initialized');
-    }
+  @Column({ nullable: true, type: 'timestamp' })
+  flagged_at?: Date;
 
-    try {
-      const cachedToken = await this.keychain.get('google_token');
-      if (cachedToken) {
-        const tokenData = JSON.parse(cachedToken);
-        const expiresAt = tokenData.expiry_date;
-        const now = Date.now();
-        if (expiresAt - now > 300000) {
-          return tokenData.access_token;
-        }
-      }
+  @Column({ default: false })
+  archived: boolean;
 
-      const credentials = await this.keychain.get('google_credentials');
-      if (!credentials) {
-        throw new Error('Google credentials not found in keychain');
-      }
+  @Column({ nullable: true, type: 'timestamp' })
+  archived_at?: Date;
 
-      const { tokens } = await this.googleClient.getToken(JSON.parse(credentials));
-      await this.keychain.set('google_token', JSON.stringify(tokens));
+  @Column({ default: false })
+  historical_import: boolean;
 
-      this.metrics.increment('auth.google.token_acquired');
-      return tokens.access_token!;
-    } catch (error) {
-      logger.error('Failed to get Google token', { error });
-      this.metrics.increment('auth.google.token_failed');
-      throw error;
-    }
-  }
+  @OneToMany(() => Relationship, relationship => relationship.parent_item)
+  child_relationships: Relationship[];
 
-  async revokeToken(provider: 'microsoft' | 'google'): Promise<void> {
-    try {
-      if (provider === 'microsoft') {
-        await this.keychain.delete('microsoft_token');
-      } else {
-        const token = await this.keychain.get('google_token');
-        if (token) {
-          const tokenData = JSON.parse(token);
-          await this.googleClient?.revokeToken(tokenData.access_token);
-        }
-        await this.keychain.delete('google_token');
-      }
+  @OneToMany(() => Relationship, relationship => relationship.child_item)
+  parent_relationships: Relationship[];
 
-      logger.info(`Revoked ${provider} token`);
-      this.metrics.increment(`auth.${provider}.token_revoked`);
-    } catch (error) {
-      logger.error(`Failed to revoke ${provider} token`, { error });
-      this.metrics.increment(`auth.${provider}.revoke_failed`);
-      throw error;
+  @OneToMany(() => ManualEdit, edit => edit.item)
+  manual_edits: ManualEdit[];
+
+  @OneToMany(() => LearningFeedback, feedback => feedback.item)
+  learning_feedback: LearningFeedback[];
+}
+```
+
+```filepath:implementation-output/src/entities/person.entity.ts
+import { Entity, Column, OneToMany, Index } from 'typeorm';
+import { BaseEntity } from './Base.entity';
+import { Item } from './item.entity';
+
+@Entity()
+export class Person extends BaseEntity {
+  @Column({ length: 100 })
+  name: string;
+
+  @Index({ unique: true, where: 'email IS NOT NULL' })
+  @Column({ nullable: true, length: 255 })
+  email?: string;
+
+  @Column({ nullable: true })
+  slack_user_id?: string;
+
+  @Column({ nullable: true })
+  zoom_user_id?: string;
+
+  @OneToMany(() => Item, item => item.responsible_person)
+  items: Item[];
+
+  @Column('check ("email" IS NOT NULL OR "slack_user_id" IS NOT NULL OR "zoom_user_id" IS NOT NULL)')
+  validateIdentifiers() {
+    if (!this.email && !this.slack_user_id && !this.zoom_user_id) {
+      throw new Error('Person must have at least one identifier (email, slack_user_id, or zoom_user_id)');
     }
   }
 }
 ```
 
-```filepath:src/integrations/external/api.client.ts
-import axios, { AxiosInstance, AxiosRequestConfig } from 'axios';
-import axiosRetry from 'axios-retry';
-import CircuitBreaker from 'opossum';
-import { logger } from '../../utils/logger';
-import { MetricsService } from '../../services/metrics.service';
-import { AppError } from '../../utils/errors';
+```filepath:implementation-output/src/entities/relationship.entity.ts
+import { Entity, Column, ManyToOne, Check } from 'typeorm';
+import { BaseEntity } from './Base.entity';
+import { Item } from './item.entity';
 
-interface RetryConfig {
-  retries: number;
-  retryCondition?: (error: any) => boolean;
-  retryDelay?: (retryCount: number) => number;
-}
+export type RelationType = 'ask_to_commitment' | 'commitment_to_action';
 
-interface CircuitBreakerConfig {
-  timeout: number;
-  errorThreshold: number;
-  resetTimeout: number;
-}
+@Entity()
+@Check('"parent_item_id" != "child_item_id"')
+export class Relationship extends BaseEntity {
+  @ManyToOne(() => Item, item => item.child_relationships)
+  parent_item: Item;
 
-export class ExternalApiClient {
-  private client: AxiosInstance;
-  private circuitBreaker: CircuitBreaker;
-  private metrics: MetricsService;
+  @ManyToOne(() => Item, item => item.parent_relationships) 
+  child_item: Item;
 
-  constructor(
-    baseURL: string,
-    private readonly name: string,
-    retryConfig?: RetryConfig,
-    circuitConfig?: CircuitBreakerConfig
-  ) {
-    this.metrics = new MetricsService();
+  @Column({ type: 'enum', enum: ['ask_to_commitment', 'commitment_to_action'] })
+  relationship_type: RelationType;
 
-    this.client = axios.create({
-      baseURL,
-      timeout: circuitConfig?.timeout || 10000,
-      headers: {
-        'Accept': 'application/json',
-        'Content-Type': 'application/json'
-      }
-    });
+  @Column('float', {
+    check: 'confidence_score >= 0 AND confidence_score <= 1'
+  })
+  confidence_score: number;
 
-    axiosRetry(this.client, {
-      retries: retryConfig?.retries || 3,
-      retryDelay: retryConfig?.retryDelay || axiosRetry.exponentialDelay,
-      retryCondition: retryConfig?.retryCondition || axiosRetry.isNetworkOrIdempotentRequestError,
-      onRetry: (retryCount, error, requestConfig) => {
-        logger.warn(`Retrying ${this.name} API request`, {
-          retryCount,
-          url: requestConfig.url,
-          error: error.message
-        });
-        this.metrics.increment(`${this.name}.retry`, { url: requestConfig.url });
-      }
-    });
-
-    this.circuitBreaker = new CircuitBreaker(this.executeRequest.bind(this), {
-      timeout: circuitConfig?.timeout || 10000,
-      errorThresholdPercentage: circuitConfig?.errorThreshold || 50,
-      resetTimeout: circuitConfig?.resetTimeout || 30000
-    });
-
-    this.setupCircuitBreakerEvents();
-    this.setupInterceptors();
-  }
-
-  private setupCircuitBreakerEvents(): void {
-    this.circuitBreaker.on('open', () => {
-      logger.error(`${this.name} circuit breaker opened`);
-      this.metrics.increment(`${this.name}.circuit_breaker.open`);
-    });
-
-    this.circuitBreaker.on('halfOpen', () => {
-      logger.info(`${this.name} circuit breaker half-open`);
-      this.metrics.increment(`${this.name}.circuit_breaker.half_open`);
-    });
-
-    this.circuitBreaker.on('close', () => {
-      logger.info(`${this.name} circuit breaker closed`);
-      this.metrics.increment(`${this.name}.circuit_breaker.close`);
-    });
-  }
-
-  private setupInterceptors(): void {
-    this.client.interceptors.request.use(
-      (config) => {
-        const requestId = Math.random().toString(36).substring(7);
-        (config as any).requestId = requestId;
-        (config as any).startTime = Date.now();
-
-        logger.debug(`${this.name} API request`, {
-          method: config.method,
-          url: config.url,
-          requestId
-        });
-
-        return config;
-      },
-      (error) => {
-        logger.error(`${this.name} request error`, { error });
-        return Promise.reject(error);
-      }
+  @Column('check', {
+    expression: `
+      (relationship_type = 'ask_to_commitment' AND
+       parent_item.type = 'ask' AND 
+       child_item.type = 'commitment')
+      OR
+      (relationship_type = 'commitment_to_action' AND
+       parent_item.type = 'commitment' AND
+       child_item.type = 'action')
+    `
+  })
+  validateTypes() {
+    const valid = (
+      (this.relationship_type === 'ask_to_commitment' &&
+        this.parent_item.type === 'ask' &&
+        this.child_item.type === 'commitment') ||
+      (this.relationship_type === 'commitment_to_action' &&
+        this.parent_item.type === 'commitment' &&
+        this.child_item.type === 'action')
     );
-
-    this.client.interceptors.response.use(
-      (response) => {
-        const duration = Date.now() - (response.config as any).startTime;
-        const requestId = (response.config as any).requestId;
-
-        logger.debug(`${this.name} API response`, {
-          status: response.status,
-          url: response.config.url,
-          duration,
-          requestId
-        });
-
-        this.metrics.timing(`${this.name}.response_time`, duration);
-        return response;
-      },
-      (error) => {
-        this.handleApiError(error);
-        return Promise.reject(error);
-      }
-    );
-  }
-
-  private async executeRequest(config: AxiosRequestConfig): Promise<any> {
-    try {
-      return await this.client.request(config);
-    } catch (error) {
-      throw this.transformError(error);
+    if (!valid) {
+      throw new Error('Invalid relationship type combination');
     }
   }
+}
+```
 
-  private handleApiError(error: any): void {
-    if (axios.isAxiosError(error)) {
-      if (error.response) {
-        logger.error(`${this.name} API error response`, {
-          status: error.response.status,
-          data: error.response.data,
-          url: error.config?.url
-        });
-        this.metrics.increment(`${this.name}.error`, {
-          status: error.response.status.toString()
-        });
-      } else if (error.request) {
-        logger.error(`${this.name} API no response`, {
-          url: error.config?.url
-        });
-        this.metrics.incremen
+```filepath:implementation-output/src/entities/ManualEdit.entity.ts
+import { Entity, Column, ManyToOne } from 'typeorm';
+import { BaseEntity } from './Base.entity';
+import { Item } from './item.entity';
+
+@Entity()
+export class ManualEdit extends BaseEntity {
+  @ManyToOne(() => Item, item => item.manual_edits)
+  item: Item;
+
+  @Column()
+  field_name: string;
+
+  @Column('json')
+  old_value: string;
+
+  @Column('json')
+  new_value: string;
+
+  @Column('timestamp')
+  edited_at: Date;
+}
+```
+
+```filepath:implementation-output/src/entities/LearningFeedback.entity.ts
+import { Entity, Column, ManyToOne } from 'typeorm';
+import { BaseEntity } from './Base.entity';
+import { Item } from './item.entity';
+
+export type FeedbackType = 'priority_correction' | 'false_positive' | 'relationship_correction';
+
+@Entity()
+export class LearningFeedback extends BaseEntity {
+  @ManyToOne(() => Item, item => item.learning_feedback)
+  item: Item;
+
+  @Column({ type: 'enum', enum: ['priority_correction', 'false_positive', 'relationship_correction'] })
+  feedback_type: FeedbackType;
+
+  @Column('json')
+  ai_prediction: string;
+
+  @Column('json')
+  user_correction: string;
+}
+```

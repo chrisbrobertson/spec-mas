@@ -1,69 +1,37 @@
-import {
-  Entity,
-  Column,
-  PrimaryGeneratedColumn,
-  ManyToOne,
-  JoinColumn,
-  CreateDateColumn,
-  Check,
-  Unique,
-} from "typeorm";
-import { Item } from "./item.entity";
+import { Entity, Column, ManyToOne, JoinColumn, Index, Check } from "typeorm";
+import { BaseEntity } from "./Base.entity";
+import { Item } from "./Item.entity";
 
 export type RelationshipType = "ask_to_commitment" | "commitment_to_action";
 
 @Entity("relationships")
-@Unique(["parentItemId", "childItemId"])
-export class Relationship {
-  @PrimaryGeneratedColumn("uuid")
-  id!: string;
+@Index("idx_relationship_parent_child", ["parent_item_id", "child_item_id"], {
+  unique: true,
+})
+@Check(`"relationship_type" IN ('ask_to_commitment', 'commitment_to_action')`)
+@Check(`"confidence_score" >= 0 AND "confidence_score" <= 1`)
+export class Relationship extends BaseEntity {
+  @Column({ type: "uuid", nullable: false })
+  parent_item_id: string;
 
-  @ManyToOne(() => Item, (item) => item.childRelationships, { nullable: false })
+  @Column({ type: "uuid", nullable: false })
+  child_item_id: string;
+
+  @Column({ type: "varchar", length: 30, nullable: false })
+  relationship_type: RelationshipType;
+
+  @Column({ type: "decimal", precision: 3, scale: 2, nullable: false })
+  confidence_score: number;
+
+  @ManyToOne(() => Item, (item) => item.child_relationships, {
+    onDelete: "CASCADE",
+  })
   @JoinColumn({ name: "parent_item_id" })
-  parentItem!: Item;
+  parent_item: Item;
 
-  @Column({ name: "parent_item_id", nullable: false })
-  parentItemId!: string;
-
-  @ManyToOne(() => Item, (item) => item.parentRelationships, {
-    nullable: false,
+  @ManyToOne(() => Item, (item) => item.parent_relationships, {
+    onDelete: "CASCADE",
   })
   @JoinColumn({ name: "child_item_id" })
-  childItem!: Item;
-
-  @Column({ name: "child_item_id", nullable: false })
-  childItemId!: string;
-
-  @Column({
-    name: "relationship_type",
-    type: "enum",
-    enum: ["ask_to_commitment", "commitment_to_action"],
-    nullable: false,
-  })
-  relationshipType!: RelationshipType;
-
-  @Column({
-    name: "confidence_score",
-    type: "decimal",
-    precision: 3,
-    scale: 2,
-    nullable: false,
-  })
-  @Check("confidence_score >= 0 AND confidence_score <= 1")
-  confidenceScore!: number;
-
-  @CreateDateColumn({ name: "created_at", type: "timestamp with time zone" })
-  createdAt!: Date;
-
-  validate(): boolean {
-    if (this.parentItemId === this.childItemId) {
-      throw new Error("Self-referential relationships are not allowed");
-    }
-
-    if (this.confidenceScore < 0 || this.confidenceScore > 1) {
-      throw new Error("Confidence score must be between 0 and 1");
-    }
-
-    return true;
-  }
+  child_item: Item;
 }
