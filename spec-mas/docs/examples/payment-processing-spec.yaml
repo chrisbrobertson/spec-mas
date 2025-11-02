@@ -1,0 +1,333 @@
+apiVersion: specmas/v2
+kind: SecurityCriticalSpec
+metadata:
+  name: payment-processing-service
+  level: 5
+  version: 1.0.0
+  owners:
+    - name: Jane Smith
+      email: jane.smith@company.com
+    - name: Bob Johnson
+      email: bob.johnson@company.com
+  security_classification: HIGH
+  compliance_requirements:
+    - PCI-DSS
+    - SOC2
+
+specification:
+  user_stories:
+    - As a customer, I want to process credit card payments securely so that I can complete my purchase
+    - As a business owner, I want to track all payment attempts so that I can monitor for fraud
+    - As a customer, I want to receive email confirmation so that I have a record of my payment
+
+  formal_requirements:
+    invariants:
+      preconditions:
+        - "User MUST be authenticated with valid session"
+        - "Payment amount MUST be greater than 0"
+        - "Payment amount MUST be less than or equal to user's configured limit"
+        - "Card details MUST pass Luhn algorithm check"
+        - "User MUST have completed 2FA within last 30 minutes for amounts > $500"
+      
+      postconditions:
+        - "Payment record MUST exist in database with unique transaction ID"
+        - "Audit log entry MUST be created with timestamp and user ID"
+        - "Customer MUST receive email notification within 60 seconds"
+        - "Merchant MUST receive webhook notification if configured"
+        - "Transaction status MUST be one of: pending, completed, failed, refunded"
+      
+      security_assertions:
+        - "No payment card numbers in application logs"
+        - "All PII encrypted with AES-256 at rest"
+        - "No CVV codes stored anywhere"
+        - "Card numbers masked except last 4 digits in all displays"
+        - "All payment data transmitted over TLS 1.3+"
+    
+    forbidden_operations:
+      never_do:
+        - "Log full credit card numbers"
+        - "Store CVV codes in any form"
+        - "Process payment without idempotency key"
+        - "Allow payment amount modification after submission"
+        - "Bypass rate limiting checks"
+      
+      never_access:
+        - "Other users' payment methods"
+        - "Unencrypted payment tokens"
+        - "System configuration files"
+        - "Database directly (must use service layer)"
+      
+      never_trust:
+        - "Client-supplied payment amounts"
+        - "Client-supplied user IDs"
+        - "Unsigned webhook payloads"
+        - "Cached authorization results older than 5 minutes"
+    
+    deterministic_tests:
+      - description: "Valid payment processing"
+        input:
+          amount: 100.00
+          currency: "USD"
+          card_last_four: "4242"
+          tax_rate: 0.08
+        output:
+          total: 108.00
+          status: "completed"
+          transaction_id_pattern: "^txn_[a-zA-Z0-9]{24}$"
+        checksum: "sha256:a4f2b1c4d5e6f7a8b9c0d1e2f3a4b5c6"
+      
+      - description: "Payment exceeds limit"
+        input:
+          amount: 10000.00
+          currency: "USD"
+          card_last_four: "4242"
+          tax_rate: 0.08
+        output:
+          error: "Payment amount exceeds configured limit"
+          error_code: "LIMIT_EXCEEDED"
+          status: "failed"
+        checksum: "sha256:b5e3c2d1a9f8e7d6c5b4a3f2e1d0c9b8"
+
+  functional_requirements:
+    - id: FR-1
+      description: "System MUST process credit card payments through Stripe API"
+      priority: HIGH
+      validation_criteria:
+        - "Successful payment returns transaction ID"
+        - "Failed payment returns specific error code"
+        - "Network timeout triggers retry with exponential backoff"
+    
+    - id: FR-2
+      description: "System MUST implement idempotency for payment requests"
+      priority: HIGH
+      validation_criteria:
+        - "Duplicate requests with same idempotency key return cached result"
+        - "Idempotency keys expire after 24 hours"
+    
+    - id: FR-3
+      description: "System MUST support refunds within 90 days"
+      priority: MEDIUM
+      validation_criteria:
+        - "Full refunds process within 5 seconds"
+        - "Partial refunds calculate correctly"
+        - "Refunds after 90 days return error"
+
+  non_functional_requirements:
+    performance:
+      - id: NFR-P1
+        metric: response_time
+        requirement: "< 200ms for 95th percentile"
+        measurement: "Measured at API gateway excluding payment provider latency"
+      
+      - id: NFR-P2
+        metric: throughput
+        requirement: "> 1000 transactions per second"
+        measurement: "Load tested monthly"
+    
+    security:
+      - id: NFR-S1
+        requirement: "All payment endpoints require OAuth 2.0 authentication"
+        exceptions: []
+      
+      - id: NFR-S2
+        requirement: "Rate limiting: 100 payment attempts per hour per user"
+        enforcement: "Return 429 with Retry-After header"
+      
+      - id: NFR-S3
+        requirement: "PCI-DSS Level 1 compliance maintained"
+        validation: "Annual audit by QSA"
+    
+    reliability:
+      - id: NFR-R1
+        metric: availability
+        requirement: "99.99% uptime"
+        measurement: "Monthly calculation excluding scheduled maintenance"
+
+  architecture_constraints:
+    technology_stack:
+      - "Use existing authentication service (OAuth 2.0)"
+      - "PostgreSQL 14+ for transaction records"
+      - "Redis for idempotency key storage"
+      - "Stripe API for payment processing"
+    
+    integration_points:
+      - system: "Stripe Payment Gateway"
+        type: "REST API"
+        authentication: "API Key (secret)"
+        data_format: "JSON"
+        retry_policy: "Exponential backoff with max 3 retries"
+      
+      - system: "Email Service"
+        type: "Message Queue (SQS)"
+        authentication: "IAM Role"
+        data_format: "JSON"
+        retry_policy: "Dead letter queue after 5 attempts"
+    
+    data_flow:
+      - source: "Client Application"
+        destination: "Payment Service"
+        format: "JSON over HTTPS"
+        encryption: "TLS 1.3"
+        validation: "JSON Schema validation"
+      
+      - source: "Payment Service"
+        destination: "Stripe API"
+        format: "JSON"
+        encryption: "TLS 1.3"
+        validation: "Stripe SDK validation"
+
+  acceptance_criteria:
+    - id: AC-1
+      given: "User is authenticated and has valid payment method"
+      when: "User submits payment for $100"
+      then: "Payment is processed and confirmation email sent within 60 seconds"
+    
+    - id: AC-2
+      given: "User has reached rate limit"
+      when: "User attempts another payment"
+      then: "Request rejected with 429 status and Retry-After header"
+    
+    - id: AC-3
+      given: "Payment was processed successfully"
+      when: "User requests refund within 90 days"
+      then: "Refund processed and original payment marked as refunded"
+
+  error_handling:
+    - error: "Payment provider timeout"
+      recovery: "Retry with exponential backoff (1s, 2s, 4s)"
+      user_message: "Payment processing is taking longer than usual. Please wait..."
+      logging: "ERROR level with full request context"
+      alerting: "PagerDuty after 3 consecutive failures"
+    
+    - error: "Invalid card details"
+      recovery: "No retry, return immediately"
+      user_message: "Please check your card details and try again"
+      logging: "INFO level without card numbers"
+      alerting: "None"
+    
+    - error: "Database connection lost"
+      recovery: "Circuit breaker pattern, fallback to cache"
+      user_message: "Service temporarily unavailable"
+      logging: "CRITICAL level"
+      alerting: "Immediate PagerDuty and Slack"
+
+  security_requirements:
+    authentication:
+      method: "OAuth 2.0"
+      token_lifetime: 3600  # 1 hour
+      refresh_strategy: "Sliding window with refresh token rotation"
+    
+    authorization:
+      model: "RBAC"
+      roles:
+        - name: "customer"
+          permissions: ["create_payment", "view_own_payments", "request_refund"]
+        - name: "admin"
+          permissions: ["view_all_payments", "process_refund", "view_audit_logs"]
+    
+    encryption:
+      at_rest: "AES-256-GCM"
+      in_transit: "TLS 1.3 minimum"
+      key_management: "AWS KMS with annual rotation"
+    
+    audit:
+      events:
+        - "payment_attempted"
+        - "payment_completed"
+        - "payment_failed"
+        - "refund_requested"
+        - "refund_completed"
+      retention: "7 years per PCI-DSS"
+      storage: "Immutable audit log in separate database"
+
+  rollback_procedures:
+    triggers:
+      - "Payment success rate drops below 95%"
+      - "Response time exceeds 500ms for 5 minutes"
+      - "Security violation detected"
+    
+    steps:
+      - "Enable maintenance mode"
+      - "Stop processing new payments"
+      - "Revert to previous deployment"
+      - "Verify system health"
+      - "Process queued payments"
+      - "Disable maintenance mode"
+    
+    validation:
+      - "Run smoke tests"
+      - "Verify payment processing works"
+      - "Check audit logs"
+    
+    communication:
+      - "Notify on-call engineer"
+      - "Update status page"
+      - "Email CTO if critical"
+
+implementation_notes:
+  critical_paths:
+    - "Payment authorization and capture"
+    - "Idempotency key checking"
+    - "Card data tokenization"
+  
+  testing_requirements:
+    - "PCI-DSS compliance scan"
+    - "Load test with 10,000 concurrent users"
+    - "Chaos engineering for payment provider failure"
+    - "Security penetration testing"
+  
+  performance_considerations:
+    - "Database connection pooling required"
+    - "Redis cache for frequently accessed data"
+    - "Async processing for email notifications"
+  
+  security_checklist:
+    - [x] Input validation implemented
+    - [x] Output encoding implemented
+    - [x] Authentication checks on all endpoints
+    - [x] Authorization checks before data access
+    - [x] Audit logging for sensitive operations
+    - [x] Rate limiting configured
+    - [x] Error messages don't leak sensitive info
+    - [x] Security headers configured
+    - [x] CSRF protection enabled
+    - [x] SQL injection prevention
+
+dependencies:
+  services:
+    - name: "Stripe API"
+      version: "v2023-10-16"
+      purpose: "Payment processing"
+      sla: "99.99% availability"
+    
+    - name: "OAuth Service"
+      version: "2.0"
+      purpose: "Authentication"
+      internal: true
+  
+  libraries:
+    - name: "stripe-node"
+      version: "^14.0.0"
+      security_review: "Approved 2024-01-15"
+    
+    - name: "joi"
+      version: "^17.11.0"
+      purpose: "Input validation"
+      security_review: "Approved 2024-01-10"
+  
+  data_sources:
+    - name: "payments_db"
+      type: "PostgreSQL 14"
+      access_pattern: "Read/Write"
+      sensitivity: "HIGH - Contains payment records"
+
+change_log:
+  - version: 1.0.0
+    date: 2024-02-15
+    changes:
+      - "Initial specification for payment processing"
+    reviewed_by:
+      - "Security Team"
+      - "Architecture Board"
+    approved_by:
+      - "CTO - John Doe"

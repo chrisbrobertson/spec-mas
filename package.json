@@ -10,6 +10,8 @@
     "specmas": "node .spec-mas/scripts/specmas.js",
     "validate-spec": "node .spec-mas/scripts/validate-spec.js",
     "validate-all": "find specs -name '*.md' -not -path '*/node_modules/*' -exec node .spec-mas/scripts/validate-spec.js {} \\; || true",
+    "analyze-spec": "node .spec-mas/scripts/analyze-spec.js",
+    "analyze-spec:json": "node .spec-mas/scripts/analyze-spec.js --json",
     "review-spec": "node .spec-mas/scripts/review-spec.js",
     "review-approve": "node .spec-mas/scripts/review-approval.js",
     "generate-tests": "node .spec-mas/scripts/generate-tests.js",
