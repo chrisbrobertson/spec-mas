@@ -145,7 +145,65 @@ Let's create a focused feature specification for this.
 [Continue with normal feature spec creation]
 ```
 
-**Edge Cases:**
+**Special Case - Integration Features:**
+
+When the feature is an **integration** with an external system (detection keywords: "integrate", "integration with", "connect to", "sync with"), gather architectural context BEFORE starting Level 1:
+
+```
+✓ **INTEGRATION FEATURE DETECTED**
+
+You're describing: Integration with [External System Name]
+
+**Before we create the spec, I need to understand the architectural context:**
+
+**Q1: What system is this integration for?**
+   - Do you have an existing system architecture spec?
+   - What's the name of your application/system?
+   - Is this for a new system or existing codebase?
+
+**Q2: Where does this integration fit?**
+   - Which component/service will own this integration?
+   - What other components will interact with it?
+   - Do you have existing authentication/API infrastructure?
+
+**Q3: What context should I reference?**
+   - Can you share your system architecture spec (if it exists)?
+   - Are there related feature specs I should know about?
+   - Is this part of a larger implementation roadmap?
+```
+
+**If user provides system context:**
+```
+Great! I can see this is part of [System Name].
+
+Based on your system architecture, this integration will:
+- Be owned by: [Component Name]
+- Interact with: [Other Components]
+- Use authentication from: [Auth System]
+
+Let's create a focused feature spec for this integration with full system context.
+
+**Complexity:** [EASY/MODERATE/HIGH]  
+**Required Maturity:** Level [3/4/5]
+
+[Proceed to Level 1 with system context]
+```
+
+**If user has no system context:**
+```
+No problem! We'll create a standalone integration spec.
+
+Just noting: If you're building this as part of a larger system, you may want to create a system architecture spec first to define how this integration fits with other components.
+
+For now, let's create a focused integration feature spec.
+
+**Complexity:** [EASY/MODERATE/HIGH]  
+**Required Maturity:** Level [3/4/5]
+
+[Proceed to Level 1]
+```
+
+**Edge Cases:
 
 1. **2 major domains (borderline):**
    ```

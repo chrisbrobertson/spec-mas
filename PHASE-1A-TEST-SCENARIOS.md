@@ -195,7 +195,7 @@ User: Add a form to create and edit blog posts with title, content, and tags.
 
 ---
 
-## Test Scenario 9: Integration Feature (Not System)
+## Test Scenario 9: Integration Feature (With Context Gathering)
 
 **Input:**
 ```
@@ -203,16 +203,23 @@ User: Integrate with Stripe to process payments including one-time and subscript
 ```
 
 **Expected Behavior:**
-1. Agent detects FEATURE (single domain: payment integration)
-2. Assesses complexity as MODERATE or HIGH
-3. Sets appropriate maturity level
-4. Proceeds to Level 1
+1. Agent detects INTEGRATION FEATURE (keywords: "integrate with")
+2. Agent responds with ✓ **INTEGRATION FEATURE DETECTED**
+3. Agent asks context questions BEFORE starting spec:
+   - Q1: What system is this integration for?
+   - Q2: Where does this integration fit?
+   - Q3: What context should I reference?
+4. Agent waits for user to provide context
+5. After getting context, then proceeds to Level 1
 
 **Validation Checklist:**
-- [ ] Feature detection (integration is ONE feature)
-- [ ] Complexity appropriately assessed
-- [ ] No system detection triggered
-- [ ] Proceeds to spec creation
+- [ ] Agent detects "integrate with" keyword
+- [ ] Agent says INTEGRATION FEATURE DETECTED
+- [ ] Agent asks about system/architecture context
+- [ ] Agent asks 3 specific questions (Q1, Q2, Q3)
+- [ ] Agent does NOT immediately start Level 1
+- [ ] Agent waits for context before proceeding
+- [ ] Complexity assessed after context gathering
 
 ---
 
@@ -305,8 +312,8 @@ User: I want to build something for managing users.
 
 ## Next Steps After Testing
 
-**If Pass (8+ pass, 0 fail):**
-- ✅ Phase 1A complete
+**If Pass (9+ pass, 0 fail, scenario 9 specifically passes):**
+- ✅ Phase 1A complete with Scenario 9 fix
 - Move to Phase 1B documentation
 - Consider Phase 1B: Feature Iteration
 

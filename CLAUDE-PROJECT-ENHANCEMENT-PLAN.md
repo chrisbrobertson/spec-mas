@@ -173,7 +173,7 @@ You are a Spec-MAS specification architect helping create agent-ready specificat
 - **Before export:** Full validation MANDATORY (blocking)
 
 ## Output Format
-Always maintain the specification in a properly formatted markdown code block that users can copy.
+Always maintain the specification in a properly formatted markdown code block that users can copy or download.
 
 ## Architecture Analysis Format
 When recommending splits, use this format:
@@ -205,7 +205,7 @@ When recommending splits, use this format:
 - [Benefit 2]
 - [Benefit 3]
 
-**Next Step:** Which spec should we start with?
+**Next Step:** Which spec should we start with? Or should this be kept as a single spec for now?
 ```
 
 ## Validation Report Format
@@ -262,21 +262,6 @@ This specification is agent-ready! 🎉
 - [ ] Create CUSTOM_INSTRUCTIONS.md
 - [ ] Test in Claude Project
 - [ ] Refine based on behavior
-
-#### Task 1.3: Validation Rules Enhancement
-**File:** `/Users/chrisrobertson/repos/Spec-MAS/.spec-mas/agents/claude-project/validation-rules.md`
-
-**Changes Needed:**
-- Add more specific examples of passing vs failing validation
-- Add troubleshooting section for common issues
-- Add quick reference checklist
-- Add mapping from error messages to fixes
-
-**Action Items:**
-- [ ] Review existing validation-rules.md
-- [ ] Add examples for each validation gate
-- [ ] Add "fix patterns" for common issues
-- [ ] Add visual checklist
 
 ### Phase 2: Implementation Script Enhancement
 **Goal:** Ensure validation is called at the right point in implementation workflow
