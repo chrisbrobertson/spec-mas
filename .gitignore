@@ -1,0 +1,38 @@
+# Dependencies
+node_modules/
+.spec-mas/node_modules/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Build outputs
+dist/
+build/
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test coverage
+coverage/
+.nyc_output/
+
+# Temporary files
+*.tmp
+.cache/
+
+# Backups
+.backups/
+
+# Implementation outputs (optional - uncomment if you don't want to track generated code)
+# implementation-output/

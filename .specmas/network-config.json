@@ -1,0 +1,125 @@
+{
+  "version": "1.0",
+  "description": "Spec-MAS Distributed Node Configuration",
+  "nodes": {
+    "mac-studio": {
+      "name": "Mac Studio (Code Gen)",
+      "host": "192.168.1.50",
+      "port": 11434,
+      "protocol": "http",
+      "type": "ollama",
+      "enabled": true,
+      "models": {
+        "default": "qwen2.5-coder:32b",
+        "code": "specmas-coder",
+        "fast": "qwen2.5-coder:7b"
+      },
+      "capabilities": {
+        "code-generation": { "priority": 1, "maxTokens": 16384 },
+        "code-review": { "priority": 1, "maxTokens": 8192 },
+        "test-generation": { "priority": 1, "maxTokens": 8192 }
+      },
+      "limits": {
+        "maxConcurrent": 2,
+        "requestTimeoutMs": 300000,
+        "maxContextLength": 32768
+      },
+      "performance": {
+        "avgLatencyMs": 1500,
+        "tokensPerSecond": 10,
+        "memoryGB": 64
+      }
+    },
+    "dgx-spark": {
+      "name": "DGX Spark (Heavy)",
+      "host": "192.168.1.100",
+      "port": 11434,
+      "protocol": "http",
+      "type": "ollama",
+      "enabled": true,
+      "models": {
+        "default": "qwen2.5:72b",
+        "heavy": "specmas-heavy",
+        "batch": "specmas-batch",
+        "code": "qwen2.5-coder:32b"
+      },
+      "capabilities": {
+        "code-generation": { "priority": 2, "maxTokens": 32768 },
+        "architecture-review": { "priority": 1, "maxTokens": 32768 },
+        "complex-reasoning": { "priority": 1, "maxTokens": 32768 },
+        "batch-processing": { "priority": 1, "maxTokens": 16384 },
+        "security-review": { "priority": 1, "maxTokens": 16384 }
+      },
+      "limits": {
+        "maxConcurrent": 4,
+        "requestTimeoutMs": 600000,
+        "maxContextLength": 65536
+      },
+      "performance": {
+        "avgLatencyMs": 3000,
+        "tokensPerSecond": 50,
+        "memoryGB": 128
+      }
+    },
+    "claude-api": {
+      "name": "Claude API (Fallback)",
+      "type": "anthropic",
+      "enabled": true,
+      "fallbackOnly": true,
+      "models": {
+        "default": "claude-sonnet-4-20250514",
+        "complex": "claude-sonnet-4-20250514"
+      },
+      "capabilities": {
+        "code-generation": { "priority": 99, "maxTokens": 8192 },
+        "code-review": { "priority": 99, "maxTokens": 8192 },
+        "architecture-review": { "priority": 2, "maxTokens": 8192 },
+        "complex-reasoning": { "priority": 2, "maxTokens": 8192 }
+      },
+      "limits": {
+        "maxConcurrent": 10,
+        "requestTimeoutMs": 120000,
+        "maxContextLength": 200000
+      },
+      "costs": {
+        "inputPerMillionTokens": 3.00,
+        "outputPerMillionTokens": 15.00
+      }
+    }
+  },
+  "routing": {
+    "code-generation": ["mac-studio", "dgx-spark", "claude-api"],
+    "code-review": ["mac-studio", "claude-api"],
+    "test-generation": ["mac-studio", "dgx-spark"],
+    "architecture-review": ["dgx-spark", "claude-api"],
+    "complex-reasoning": ["dgx-spark", "claude-api"],
+    "batch-processing": ["dgx-spark"],
+    "security-review": ["dgx-spark", "claude-api"],
+    "default": ["mac-studio", "dgx-spark", "claude-api"]
+  },
+  "healthCheck": {
+    "enabled": true,
+    "intervalMs": 30000,
+    "timeoutMs": 5000,
+    "endpoints": {
+      "ollama": "/api/tags"
+    }
+  },
+  "strategies": {
+    "cost-optimized": {
+      "description": "Prefer free local nodes, fall back to cloud only when necessary",
+      "preferLocal": true,
+      "order": ["mac-studio", "dgx-spark", "claude-api"]
+    },
+    "speed-optimized": {
+      "description": "Prefer fastest response time",
+      "preferLocal": true,
+      "order": ["mac-studio", "claude-api", "dgx-spark"]
+    },
+    "quality-optimized": {
+      "description": "Prefer largest/most capable models",
+      "preferLocal": true,
+      "order": ["dgx-spark", "claude-api", "mac-studio"]
+    }
+  }
+}
