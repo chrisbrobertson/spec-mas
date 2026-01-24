@@ -15,6 +15,7 @@ const { ConfigManager } = require('./config-manager');
 const { estimateCost } = require('./cost-estimator');
 const { initProject } = require('./init-project');
 const { detectTools } = require('./agent-registry');
+const { handleCreate, handleComment } = require('./issue-queue');
 
 // Package info
 const packageJson = require(path.resolve(__dirname, '..', '..', 'package.json'));
@@ -151,6 +152,26 @@ program
     }
     for (const name of missing.values()) {
       console.log(`${name}: not found`);
+    }
+  });
+
+program
+  .command('issues <action> [arg1] [arg2]')
+  .description('Manage GitHub issue work queue (create|comment)')
+  .action(async (action, arg1, arg2) => {
+    try {
+      if (action === 'create') {
+        if (!arg1) throw new Error('spec-file required');
+        await handleCreate(arg1);
+      } else if (action === 'comment') {
+        if (!arg1 || !arg2) throw new Error('issue-number and status required');
+        await handleComment(arg1, arg2);
+      } else {
+        throw new Error('unknown action');
+      }
+    } catch (error) {
+      console.error(error.message || error);
+      process.exit(1);
     }
   });
 
