@@ -26,7 +26,8 @@
 - `simple-template.md`: For Level 1-2 basic features
 
 #### Tools & Scripts
-- `specmas/validation/gates.py`: Progressive validation implementation
+- `spec-mas/src/validation/gates.js`: Progressive validation implementation
+- `spec-mas/scripts/validate-spec.js`: Spec validation CLI
 - `specmas/adversarial/review.py`: Adversarial review orchestration
 - `scripts/migrate_to_v2.py`: Semi-automated migration tool
 - `scripts/analyze_v1_specs.py`: Migration analyzer

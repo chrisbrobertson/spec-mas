@@ -191,7 +191,7 @@ jobs:
 **Solution**: 
 ```bash
 # Run diagnostic mode
-python specmas/validation/gates.py specs/my-spec.yaml --diagnostic
+npm run validate-spec specs/my-spec.md --summary
 
 # This shows exactly what's missing
 Missing: security_requirements section

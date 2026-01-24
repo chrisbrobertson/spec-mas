@@ -261,34 +261,37 @@ function validateG2Semantic(spec) {
       });
       if (!securityPresent) passed = false;
     } else {
-      // For MODERATE/HIGH, require comprehensive security
-      const hasAuth = combinedSecText.toLowerCase().includes('authentication') || combinedSecText.toLowerCase().includes('authn');
-      const hasAuthz = combinedSecText.toLowerCase().includes('authorization') ||
-                       combinedSecText.toLowerCase().includes('authz') ||
-                       combinedSecText.toLowerCase().includes('access control') ||
-                       (combinedSecText.toLowerCase().includes('role') && combinedSecText.toLowerCase().includes('permission'));
-      const hasEncryption = combinedSecText.toLowerCase().includes('encryption') ||
-                           combinedSecText.toLowerCase().includes('tls') ||
-                           combinedSecText.toLowerCase().includes('ssl') ||
-                           combinedSecText.toLowerCase().includes('https');
-
-      // Count security aspects covered
-      const securityAspects = [hasAuth, hasAuthz, hasEncryption].filter(Boolean).length;
-
-      // Require at least 2 of 3 security aspects for MODERATE/HIGH
-      const requiredAspects = 2;
-      const securityComplete = securityAspects >= requiredAspects;
+      // For MODERATE/HIGH, require comprehensive security coverage
+      const lower = combinedSecText.toLowerCase();
+      const hasAuth = lower.includes('authentication') || lower.includes('authn');
+      const hasAuthz = lower.includes('authorization') ||
+                       lower.includes('authz') ||
+                       lower.includes('access control') ||
+                       (lower.includes('role') && lower.includes('permission'));
+      const hasEncryption = lower.includes('encryption') ||
+                           lower.includes('tls') ||
+                           lower.includes('ssl') ||
+                           lower.includes('https');
+      const hasDataHandling = lower.includes('data handling') ||
+                              lower.includes('pii') ||
+                              lower.includes('retention') ||
+                              lower.includes('deletion');
+      const hasLogging = lower.includes('audit') || lower.includes('logging') || lower.includes('logs');
 
       const missingAspects = [];
       if (!hasAuth) missingAspects.push('authentication');
       if (!hasAuthz) missingAspects.push('authorization/access control');
       if (!hasEncryption) missingAspects.push('encryption');
+      if (!hasDataHandling) missingAspects.push('data handling');
+      if (!hasLogging) missingAspects.push('audit/logging');
+
+      const securityComplete = missingAspects.length === 0;
 
       checks.push({
         name: 'Security section addresses key concerns',
         passed: securityComplete,
         message: securityComplete
-          ? `✓ Security section covers ${securityAspects}/3 key aspects`
+          ? '✓ Security section covers authentication, authorization, encryption, data handling, and audit/logging'
           : `✗ Security section missing: ${missingAspects.join(', ')}`
       });
       if (!securityComplete) passed = false;
@@ -314,6 +317,12 @@ function validateG2Semantic(spec) {
 function validateG3Traceability(spec) {
   const checks = [];
   let passed = true;
+
+  const parseIdNumber = (value, prefix) => {
+    if (!value) return null;
+    const match = String(value).match(new RegExp(`${prefix}[-_]?([0-9]+)`, 'i'));
+    return match ? Number(match[1]) : null;
+  };
 
   // Check 1: All functional requirements have validation criteria (covered in G2, but double-check)
   const frs = spec.sections.functionalRequirements || [];
@@ -369,18 +378,18 @@ function validateG3Traceability(spec) {
 
   // Check 4: Test coverage is specified
   const hasAcceptanceTests = criteria.length > 0;
-  const testCoverageSpecified = hasAcceptanceTests && criteria.length >= 5;
+  const testCoverageSpecified = hasAcceptanceTests;
 
   checks.push({
     name: 'Test coverage is specified',
     passed: testCoverageSpecified,
     message: testCoverageSpecified
       ? `✓ ${criteria.length} acceptance tests specified`
-      : `✗ Insufficient test coverage (${criteria.length} tests, need at least 5)`
+      : '✗ No acceptance tests specified'
   });
   if (!testCoverageSpecified) passed = false;
 
-  // Check 5: Functional requirements are traceable to tests
+  // Check 5: Functional requirements are traceable to tests (inferred)
   // For maturity-level format, FRs may not be explicitly listed
   // In that case, check that we have user stories and acceptance criteria
   const isMaturityFormat = Object.keys(spec.sections).some(k => k.match(/^level_\d+/));
@@ -398,8 +407,20 @@ function validateG3Traceability(spec) {
     });
     if (!hasTraceability) passed = false;
   } else {
-    // For formal template, check FR to test traceability
-    const frsToCriteria = frs.length > 0 && criteria.length >= frs.length;
+    // For formal template, infer FR -> AT mapping by ID where possible
+    const frIds = frs
+      .map(fr => parseIdNumber(fr.id, 'FR'))
+      .filter(id => id !== null);
+    const atIds = criteria
+      .map(c => parseIdNumber(c, 'AT'))
+      .filter(id => id !== null);
+
+    let frsToCriteria = false;
+    if (frIds.length > 0 && atIds.length > 0) {
+      frsToCriteria = frIds.every(id => atIds.includes(id));
+    } else {
+      frsToCriteria = frs.length > 0 && criteria.length >= frs.length;
+    }
 
     checks.push({
       name: 'Functional requirements traceable to tests',
@@ -446,161 +467,48 @@ function validateG4Invariants(spec) {
     };
   }
 
-  // Check 1: Deterministic tests or concrete examples exist
-  // Note: Parser may create both camelCase and snake_case keys
-  // Prefer snake_case (object with content) over camelCase (may be empty array)
-  let tests = spec.sections.deterministic_tests || spec.sections.deterministicTests || [];
-
-  // If tests is an object (from formal template format), extract the text content
+  const parsedTests = spec.sections.deterministicTests || [];
+  const dtSection = spec.sections.deterministic_tests || spec.sections.deterministicTests || '';
   let deterministicTestsText = '';
-  let jsonBlockCount = 0;
-  if (typeof tests === 'object' && !Array.isArray(tests)) {
-    deterministicTestsText = tests._main || JSON.stringify(tests);
-    // Count JSON code blocks as tests
-    jsonBlockCount = (deterministicTestsText.match(/```json/gi) || []).length;
-    // Convert to array for compatibility with existing checks
-    if (jsonBlockCount > 0) {
-      tests = Array(jsonBlockCount).fill({ input: true }); // Dummy array to indicate tests exist
-    } else {
-      tests = [];
-    }
-    // Debug logging (remove after testing)
-    if (process.env.DEBUG_VALIDATION) {
-      console.log('[G4 Debug] deterministic_tests is object');
-      console.log('[G4 Debug] Text length:', deterministicTestsText.length);
-      console.log('[G4 Debug] JSON blocks found:', jsonBlockCount);
-      console.log('[G4 Debug] Tests array length:', tests.length);
-    }
+  if (typeof dtSection === 'object' && !Array.isArray(dtSection)) {
+    deterministicTestsText = dtSection._main || JSON.stringify(dtSection);
+  } else {
+    deterministicTestsText = String(dtSection || '');
   }
+  const hasJsonBlocks = (deterministicTestsText.match(/```json/gi) || []).length > 0;
 
-  // Also check for concrete examples in Level 5 section (maturity-level format)
-  const level5 = spec.sections.level_5_complete_specification || {};
-
-  // Check if concrete_examples subsection exists
-  const concreteExamples = typeof level5 === 'object' ? level5.concrete_examples : '';
-  const level5Text = typeof level5 === 'object' ? JSON.stringify(level5) : String(level5);
-
-  const hasConcreteExamplesSection = concreteExamples ||
-                                      level5Text.toLowerCase().includes('example 1') ||
-                                      level5Text.toLowerCase().includes('example 2') ||
-                                      level5Text.toLowerCase().includes('successful');
-
-  // Check for code blocks that might be examples (more lenient - at least 1 code block)
-  const codeBlockCount = (level5Text.match(/```/g) || []).length;
-  const hasCodeBlocks = codeBlockCount >= 2; // At least one pair (opening and closing)
-
-  // For formal template format, also check code blocks in deterministic tests section
-  const dtCodeBlockCount = (deterministicTestsText.match(/```/g) || []).length;
-  const hasDTCodeBlocks = dtCodeBlockCount >= 2; // At least one pair
-
-  const hasTests = tests.length > 0;
-  const hasExamples = (hasConcreteExamplesSection && hasCodeBlocks) || hasDTCodeBlocks;
-
-  const testsPassed = hasTests || hasExamples;
+  const hasTests = parsedTests.length > 0;
 
   checks.push({
-    name: 'Concrete examples or deterministic tests exist',
-    passed: testsPassed,
-    message: testsPassed
-      ? hasTests
-        ? `✓ Found ${tests.length} deterministic tests`
-        : `✓ Found concrete examples in Level 5 section`
-      : '✗ No deterministic tests or concrete examples found (required for HIGH complexity)'
+    name: 'Deterministic tests exist',
+    passed: hasTests,
+    message: hasTests
+      ? `✓ Found ${parsedTests.length} deterministic tests`
+      : '✗ No deterministic tests found (required for HIGH complexity)'
   });
-  if (!testsPassed) passed = false;
+  if (!hasTests) passed = false;
 
-  // Check 2: Deterministic tests have checksums (only if formal tests exist)
-  if (tests.length > 0 && deterministicTestsText) {
-    // For text format, check if checksums exist in the text
-    const hasChecksums = deterministicTestsText.toLowerCase().includes('checksum') ||
-                         deterministicTestsText.toLowerCase().includes('expected_checksum');
-
-    checks.push({
-      name: 'All deterministic tests have checksums',
-      passed: hasChecksums,
-      message: hasChecksums
-        ? `✓ All ${tests.length} tests have checksums`
-        : '✗ Some deterministic tests missing checksums'
-    });
-    if (!hasChecksums) passed = false;
-  } else if (tests.length > 0) {
-    // Array format
-    const allHaveChecksums = tests.every(t =>
-      t.expected_checksum || t.expectedChecksum || t.checksum
+  if (hasTests) {
+    const allHaveExpected = parsedTests.every(test =>
+      test.expected !== undefined || test.expected_checksum !== undefined || test.output !== undefined
     );
 
     checks.push({
-      name: 'All deterministic tests have checksums',
-      passed: allHaveChecksums,
-      message: allHaveChecksums
-        ? `✓ All ${tests.length} tests have checksums`
-        : '✗ Some deterministic tests missing checksums'
+      name: 'All deterministic tests include expected output',
+      passed: allHaveExpected,
+      message: allHaveExpected
+        ? '✓ All deterministic tests include expected output'
+        : '✗ Some deterministic tests missing expected output'
     });
-    if (!allHaveChecksums) passed = false;
-  } else {
-    // Skip checksum check if using maturity-level format with examples
+    if (!allHaveExpected) passed = false;
+  } else if (hasJsonBlocks) {
     checks.push({
-      name: 'Concrete examples are detailed',
-      passed: hasExamples,
-      message: hasExamples
-        ? `✓ Concrete examples with code blocks provided`
-        : '✗ Need detailed concrete examples with code blocks'
+      name: 'Deterministic tests are valid JSON',
+      passed: false,
+      message: '✗ Deterministic tests contain invalid JSON blocks'
     });
-    if (!hasExamples) passed = false;
+    passed = false;
   }
-
-  // Check 3: Concrete examples provided (adapted for both formats)
-  let hasConcreteContent = hasExamples;
-  if (tests.length > 0 && deterministicTestsText) {
-    // For text format, check if input/output/expected patterns exist
-    const hasInputOutput = (deterministicTestsText.toLowerCase().includes('input') &&
-                           deterministicTestsText.toLowerCase().includes('output')) ||
-                          (deterministicTestsText.toLowerCase().includes('expected'));
-    hasConcreteContent = hasInputOutput || hasExamples;
-  } else if (tests.length > 0) {
-    // Array format
-    hasConcreteContent = tests.every(t => t.input);
-  }
-
-  checks.push({
-    name: 'Concrete input/output examples provided',
-    passed: hasConcreteContent,
-    message: hasConcreteContent
-      ? tests.length > 0
-        ? `✓ All ${tests.length} tests have concrete input examples`
-        : `✓ Concrete examples with inputs/outputs provided`
-      : '✗ Missing concrete input/output examples'
-  });
-  if (!hasConcreteContent) passed = false;
-
-  // Check 4: Edge cases documented
-  const fullText = spec.raw || '';
-  const hasEdgeCases = fullText.toLowerCase().includes('edge case') ||
-                       fullText.toLowerCase().includes('edge-case') ||
-                       fullText.toLowerCase().includes('corner case');
-
-  checks.push({
-    name: 'Edge cases documented',
-    passed: hasEdgeCases,
-    message: hasEdgeCases
-      ? '✓ Edge cases documented in spec'
-      : '✗ No edge cases documented (required for HIGH complexity)'
-  });
-  if (!hasEdgeCases) passed = false;
-
-  // Check 5: Migration strategy defined
-  const hasMigration = fullText.toLowerCase().includes('migration') ||
-                       fullText.toLowerCase().includes('rollback') ||
-                       fullText.toLowerCase().includes('deployment strategy');
-
-  checks.push({
-    name: 'Migration/deployment strategy defined',
-    passed: hasMigration,
-    message: hasMigration
-      ? '✓ Migration/deployment strategy documented'
-      : '✗ No migration strategy found (required for HIGH complexity)'
-  });
-  if (!hasMigration) passed = false;
 
   // Calculate score
   const score = Math.round((checks.filter(c => c.passed).length / checks.length) * 100);
@@ -644,10 +552,10 @@ function getRequiredMaturityLevelSections(maturity) {
  */
 function getRequiredFormalSections(maturity) {
   const level1 = ['overview'];
-  const level2 = [...level1, 'functional_requirements'];
-  const level3 = [...level2, 'non_functional_requirements', 'security'];
-  const level4 = [...level3, 'data_model', 'interfaces_and_contracts'];
-  const level5 = [...level4, 'deterministic_tests', 'acceptance_tests'];
+  const level2 = [...level1, 'functional_requirements', 'acceptance_tests'];
+  const level3 = [...level2, 'non_functional_requirements', 'security', 'data_inventory'];
+  const level4 = [...level3, 'data_model', 'interfaces_and_contracts', 'risks_and_open_questions'];
+  const level5 = [...level4, 'deterministic_tests', 'glossary_and_definitions'];
 
   if (maturity >= 5) return level5;
   if (maturity >= 4) return level4;
@@ -688,8 +596,8 @@ function getApplicableGates(complexity, maturity) {
     gates.push('G3');
   }
 
-  // G4 only applies to HIGH complexity at maturity 5
-  if (complexity === 'HIGH' && maturity >= 5) {
+  // G4 applies to HIGH complexity
+  if (complexity === 'HIGH') {
     gates.push('G4');
   }
 

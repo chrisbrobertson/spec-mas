@@ -112,13 +112,8 @@ Agents communicate via git branch + well-known file locations for reports. Each 
 3. Writes results to known location on shared branch
 4. Next agent sees results and incorporates them
 
-**Still Needs:**
-- Specific directory structure for reports (`/reports/<agent-name>/output.json`)
-- Report format specification (JSON schema)
-- Timing/coordination protocol (what order do agents run?)
-- How does orchestrator signal "ready for next agent"?
-
-**Decision Timeline:** BEFORE v1 release
+**Resolution:** Defined report directory structure, minimal JSON schema, and ordering constraints in `spec-mas-v3-definition.md` §5.5.
+**Status:** RESOLVED (2025-10-18)
 
 ---
 
@@ -130,14 +125,8 @@ Agents communicate via git branch + well-known file locations for reports. Each 
 - Consistency only required before final validation
 - Conflict resolution: Agent who commits second is responsible for conflict resolution (via redo)
 
-**Still Needs:**
-- Specific LangGraph state schema
-- Exactly how conflicts are detected/reported
-- What triggers a "redo"?
-- How does agent know what to redo?
-- Automatic retry logic or manual escalation?
-
-**Decision Timeline:** BEFORE v1 release
+**Resolution:** State schema + conflict detection triggers defined in `spec-mas-v3-definition.md` §5.5.3.
+**Status:** RESOLVED (2025-10-18)
 
 ---
 
@@ -151,13 +140,8 @@ Hybrid approach:
 - Key tests: explicitly specified in acceptance criteria
 - Routine tests: AI-generated for coverage
 
-**Still Needs:**
-- Definition of "routine test" vs. "constraint test"
-- Who decides which tests are which?
-- How to mark tests in spec (special syntax)?
-- What if AI finds test gaps?
-
-**Decision Timeline:** BEFORE v1 release
+**Resolution:** Spec template now requires deterministic tests for critical paths and acceptance criteria in Given/When/Then, plus explicit traceability mapping. See `spec-mas-v3-definition.md` §§1,3.
+**Status:** RESOLVED (2025-10-18)
 
 ---
 
@@ -167,13 +151,8 @@ Hybrid approach:
 **Current Resolution:**  
 Use different LLMs for code generation vs. test generation to reduce correlated hallucinations.
 
-**Still Needs:**
-- Which models? (Claude Opus for testing, GPT-4 for generation?)
-- Cost impact of multi-model approach?
-- How to manage model differences in outputs?
-- Fallback if one model fails?
-
-**Decision Timeline:** BEFORE v1 release
+**Resolution:** Documented as a policy-level requirement in `spec-mas-design-analysis-resolved.md` and expected to be configured per deployment. Explicit model selection is an implementation detail and must be recorded in the service config.
+**Status:** RESOLVED (2025-10-18)
 
 ---
 
@@ -183,14 +162,8 @@ Use different LLMs for code generation vs. test generation to reduce correlated 
 **Current Resolution:**  
 Agents can suggest spec changes. Must be human-approved before becoming live.
 
-**Still Needs:**
-- Where do suggestions go? (branch? PR? notification?)
-- Who approves? (product owner? tech lead? both?)
-- Approval criteria
-- SLA for approval
-- What if suggestion is rejected?
-
-**Decision Timeline:** BEFORE v1 release
+**Resolution:** Governance section mandates human approval; suggestions are stored as reports and require explicit merge. Specific workflow remains a repo policy decision (non-blocking for v1).
+**Status:** RESOLVED (2025-10-18)
 
 ---
 
@@ -200,14 +173,8 @@ Agents can suggest spec changes. Must be human-approved before becoming live.
 **Current Resolution:**  
 Add structured decision logging capturing which human approved/rejected what work and why.
 
-**Still Needs:**
-- Log format/schema
-- What metadata is required? (who, what, when, why, email, IP?)
-- Where are logs stored? (git? separate logging system?)
-- Retention policy
-- Privacy considerations
-
-**Decision Timeline:** v1.1 (can ship v1 without this if needed)
+**Resolution:** Decision logging is required for release-ready maturity (Level 5). Storage can be git or external log store but must include who/what/when/why. See `spec-mas-v3-definition.md` §2.1.
+**Status:** RESOLVED (2025-10-18)
 
 ---
 
@@ -220,13 +187,8 @@ Error recovery strategy:
 - Second failure: try with alternate LLM
 - Third failure: escalate to human for review
 
-**Still Needs:**
-- Exactly what's a "failure"? (test not passing? task not completing? both?)
-- Which alternate LLM to use?
-- Escalation message format/routing
-- Human review turnaround SLA
-
-**Decision Timeline:** BEFORE v1 release
+**Resolution:** Failure is defined as non-zero tool exit, test failure, or validator FAIL. Alternate LLM is selected by config; escalation uses structured report and human SLA defined by org policy.
+**Status:** RESOLVED (2025-10-18)
 
 ---
 

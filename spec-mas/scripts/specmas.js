@@ -16,7 +16,7 @@ const { estimateCost } = require('./cost-estimator');
 const { initProject } = require('./init-project');
 
 // Package info
-const packageJson = require('../package.json');
+const packageJson = require(path.resolve(__dirname, '..', '..', 'package.json'));
 const version = packageJson.version;
 
 // Color utilities
@@ -273,6 +273,29 @@ program
 
     } catch (error) {
       console.error(colorize(`\n✗ Error: ${error.message}\n`, 'red'));
+      process.exit(1);
+    }
+  });
+
+program
+  .command('traceability <spec-file>')
+  .description('Generate traceability matrix for a spec')
+  .option('--impl-dir <path>', 'Implementation directory (default: src/)')
+  .option('--test-dir <path>', 'Test directory (default: tests/)')
+  .option('--output <path>', 'Output report file')
+  .option('--format <md|csv|json>', 'Output format (default: md)')
+  .action(async (specFile, options) => {
+    try {
+      const { execSync } = require('child_process');
+      let args = '';
+      if (options.implDir) args += `--impl-dir ${options.implDir} `;
+      if (options.testDir) args += `--test-dir ${options.testDir} `;
+      if (options.output) args += `--output ${options.output} `;
+      if (options.format) args += `--format ${options.format} `;
+      execSync(`node ${path.join(__dirname, 'traceability-matrix.js')} ${specFile} ${args}`, {
+        stdio: 'inherit'
+      });
+    } catch (error) {
       process.exit(1);
     }
   });

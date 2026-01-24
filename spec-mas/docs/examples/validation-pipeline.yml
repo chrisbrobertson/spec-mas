@@ -48,39 +48,12 @@ jobs:
             echo "specs=$(find specs -name '*.yaml' -o -name '*.md' | tr '\n' ' ')" >> $GITHUB_OUTPUT
           fi
       
-      - name: Level 1 - Syntax Validation
-        id: level1
+      - name: Run validation gates
+        id: validation
         run: |
           for spec in ${{ steps.changed-specs.outputs.specs }}; do
-            echo "Validating syntax for $spec"
-            python specmas/validation/gates.py "$spec" --level 1
-          done
-      
-      - name: Level 2 - Semantic Validation
-        id: level2
-        if: success()
-        run: |
-          for spec in ${{ steps.changed-specs.outputs.specs }}; do
-            echo "Validating semantics for $spec"
-            python specmas/validation/gates.py "$spec" --level 2
-          done
-      
-      - name: Level 3 - Coverage Validation
-        id: level3
-        if: success()
-        run: |
-          for spec in ${{ steps.changed-specs.outputs.specs }}; do
-            echo "Validating coverage for $spec"
-            python specmas/validation/gates.py "$spec" --level 3
-          done
-      
-      - name: Level 4 - Cross-Reference Validation
-        id: level4
-        if: success()
-        run: |
-          for spec in ${{ steps.changed-specs.outputs.specs }}; do
-            echo "Validating cross-references for $spec"
-            python specmas/validation/gates.py "$spec" --level 4
+            echo "Validating $spec"
+            node spec-mas/scripts/validate-spec.js "$spec" --summary
           done
       
       - name: Generate validation report
@@ -89,28 +62,10 @@ jobs:
           echo "## Validation Report" > validation-report.md
           echo "" >> validation-report.md
           
-          if [ "${{ steps.level1.outcome }}" = "success" ]; then
-            echo "✅ Level 1 (Syntax): Passed" >> validation-report.md
+          if [ "${{ steps.validation.outcome }}" = "success" ]; then
+            echo "✅ Validation: Passed" >> validation-report.md
           else
-            echo "❌ Level 1 (Syntax): Failed" >> validation-report.md
-          fi
-          
-          if [ "${{ steps.level2.outcome }}" = "success" ]; then
-            echo "✅ Level 2 (Semantic): Passed" >> validation-report.md
-          else
-            echo "❌ Level 2 (Semantic): Failed" >> validation-report.md
-          fi
-          
-          if [ "${{ steps.level3.outcome }}" = "success" ]; then
-            echo "✅ Level 3 (Coverage): Passed" >> validation-report.md
-          else
-            echo "❌ Level 3 (Coverage): Failed" >> validation-report.md
-          fi
-          
-          if [ "${{ steps.level4.outcome }}" = "success" ]; then
-            echo "✅ Level 4 (Cross-Reference): Passed" >> validation-report.md
-          else
-            echo "❌ Level 4 (Cross-Reference): Failed" >> validation-report.md
+            echo "❌ Validation: Failed" >> validation-report.md
           fi
       
       - name: Post validation results to PR

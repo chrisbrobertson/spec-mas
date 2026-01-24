@@ -380,6 +380,7 @@ const FORMAL_SECTION_MAPPINGS = {
   'nonfunctional_requirements': 'non_functional_requirements',
   'security': 'security',
   'security_considerations': 'security',
+  'data_inventory': 'data_inventory',
   'data_model': 'data_model',
   'datamodel': 'data_model',
   'interfaces_and_contracts': 'interfaces_and_contracts',
@@ -389,7 +390,12 @@ const FORMAL_SECTION_MAPPINGS = {
   'acceptance_tests': 'acceptance_tests',
   'acceptancetests': 'acceptance_tests',
   'testing_strategy': 'acceptance_tests',
-  'testingstrategy': 'acceptance_tests'
+  'testingstrategy': 'acceptance_tests',
+  'traceability': 'traceability',
+  'glossary_and_definitions': 'glossary_and_definitions',
+  'glossary_definitions': 'glossary_and_definitions',
+  'risks_and_open_questions': 'risks_and_open_questions',
+  'risks_open_questions': 'risks_and_open_questions'
 };
 
 /**
@@ -606,9 +612,9 @@ function getRequiredSections(complexity, maturity) {
     'acceptance_tests'
   ];
 
-  const level2 = [...base, 'non_functional_requirements'];
-  const level3 = [...level2, 'security', 'data_model'];
-  const level4 = [...level3, 'interfaces_and_contracts'];
+  const level2 = [...base];
+  const level3 = [...level2, 'non_functional_requirements', 'security', 'data_inventory'];
+  const level4 = [...level3, 'data_model', 'interfaces_and_contracts', 'risks_and_open_questions'];
   const level5 = [...level4, 'deterministic_tests', 'glossary_and_definitions'];
 
   // Map maturity to required sections

@@ -47,15 +47,27 @@ tags: [<tag1>, <tag2>]
 - Success metrics
 
 # Functional Requirements
-- FR-1: <description>
-  - **Validation criteria:** <bullet(s)>
-- FR-2: ...
+### FR-1: <title>
+<description>
+- **Validation Criteria:**
+  - Given <context>, When <action>, Then <outcome>
+  - ...
+
+### FR-2: <title>
+<description>
+- **Validation Criteria:**
+  - Given <context>, When <action>, Then <outcome>
 
 # Non-Functional Requirements
 - Performance:
 - Reliability & Scalability:
 - Observability:
 - Compliance & Privacy:
+
+# Data Inventory
+- Data classes and PII classification (e.g., Public, Internal, Confidential, Restricted)
+- Data retention and deletion policy
+- Data residency and transfer constraints (if any)
 
 # Security
 - Authentication:
@@ -72,15 +84,23 @@ tags: [<tag1>, <tag2>]
 
 # Deterministic Tests
 ```json
-{"id":"DT-001","description":"<what must hold>","input":"<compact example>","expected_checksum":"<sha256>"}
+{"id":"DT-001","description":"<what must hold>","preconditions":"<setup>","input":"<compact example>","expected":"<deterministic output>"}
 ```
 ```json
-{"id":"DT-002","description":"<what must hold>","input":"<compact example>","expected_checksum":"<sha256>"}
+{"id":"DT-002","description":"<what must hold>","preconditions":"<setup>","input":"<compact example>","expected":"<deterministic output>"}
 ```
 
 # Acceptance Tests
-- AT-1: <bullet>
-- AT-2: <bullet>
+### User Stories
+- As a <role>, I want <capability>, so that <benefit>.
+
+### Acceptance Criteria
+- [ ] AT-1: Given <context>, When <action>, Then <outcome>
+- [ ] AT-2: Given <context>, When <action>, Then <outcome>
+
+# Traceability (optional; inferred if omitted)
+- FR-1 -> AT-1, DT-001
+- FR-2 -> AT-2
 
 # Glossary & Definitions
 - Define domain terms and disambiguate vague language (fast, secure, soon).
@@ -101,6 +121,17 @@ Policy guidance:
 - Require **higher gate coverage** (see §3) at **higher complexity**.
 - Require **higher maturity** before implementation, but keep it independent from complexity.
 
+### 2.1 Maturity Rubric (Required)
+Use this rubric to assign maturity consistently.
+
+| Level | Definition | Minimum Criteria |
+| --- | --- | --- |
+| 1 | Draft | Overview + at least 1 FR |
+| 2 | Structured | All required sections present, basic NFR/Security filled |
+| 3 | Reviewable | FR validation criteria + acceptance criteria + glossary |
+| 4 | Implementable | Traceability complete + deterministic tests for critical paths |
+| 5 | Release-Ready | All gates pass for stated complexity + risks addressed + human decision log recorded |
+
 ---
 
 ## 3) Validation Framework
@@ -116,11 +147,11 @@ This replaces grep‑based checks with structured validation across four concern
   - Security section includes **authN/Z, data handling, logging, encryption**.
   - Glossary resolves ambiguous terms.
 - **G3: Traceability & Coverage**
-  - **FR ↔ Tests** mapping: Every FR has ≥1 Acceptance Test.
+  - **FR ↔ Tests** mapping: Every FR has ≥1 Acceptance Test. Explicit traceability is optional; IDs are inferred when present (FR-1 -> AT-1).
   - Deterministic Tests exist for critical paths.
   - Non‑functional claims have measurable targets.
 - **G4: Determinism & Invariants**
-  - Deterministic tests produce stable checksums.
+  - Deterministic tests produce stable, reproducible outputs.
   - Hard invariants enforced (see §3.3).
 
 **Pass policy by complexity**
@@ -134,7 +165,14 @@ This replaces grep‑based checks with structured validation across four concern
 
 ### 3.3 Invariant Library (hard rules)
 - **Security**: No plaintext PII at rest; at‑rest & in‑transit encryption; all writes authenticated; authorization model stated; audit trails for security‑relevant actions.
-- **Quality**: Each FR has ≥1 acceptance test; deterministic tests for security‑critical flows; ambiguous terms must be defined in Glossary.
+- **Quality**: Each FR has ≥1 acceptance test and traceability entry; deterministic tests for security‑critical flows; ambiguous terms must be defined in Glossary.
+
+### 3.5 Deterministic Test Canonicalization (Required)
+Deterministic tests must be reproducible across environments. The validator enforces:
+- **Canonical output**: JSON output must be canonicalized (sorted keys, UTF‑8, no whitespace).
+- **Stable inputs**: Inputs must include explicit locale, timezone, and randomness seeds.
+- **Execution envelope**: Tests run in a pinned runtime container with fixed versions.
+- **Hashing (optional)**: If hashes are used, include algorithm and canonicalization rules.
 
 ### 3.4 Validator: Interfaces & Outputs
 - **CLI**: `specmas validate path/to/spec.md --gates=A --complexity=HIGH --report out.json`
@@ -268,6 +306,64 @@ classDiagram
 - **Input**: `{ spec_markdown, repo_ref?, run_id, requested_gates, complexity }`
 - **Output**: `{ spec_sha, findings[], invariants[], coverage, pass_fail, artifacts: {json_report, sarif_report} }`
 
+### 5.5 Agent Coordination Contracts (Required for Distributed Pattern)
+#### 5.5.1 Report Directory Structure
+```
+feature/<spec-id>/
+├── reports/
+│   ├── requirements-agent/
+│   │   └── findings.json
+│   ├── architecture-agent/
+│   │   └── findings.json
+│   ├── dev-agent/
+│   │   └── implementation.md
+│   └── qa-agent/
+│       └── results.json
+```
+
+#### 5.5.2 Report Schema (Minimum)
+```json
+{
+  "agent": "qa-agent",
+  "spec_id": "feat-1234",
+  "run_id": "uuid",
+  "status": "PASS",
+  "findings": [
+    {
+      "severity": "ERROR",
+      "requirement_id": "FR-1",
+      "message": "Missing validation for acceptance criteria AT-1"
+    }
+  ],
+  "timestamp": "ISO8601"
+}
+```
+
+#### 5.5.3 State Schema and Conflict Handling
+```json
+{
+  "run_id": "uuid",
+  "spec_sha": "sha256",
+  "state_version": 3,
+  "locks": {
+    "dev-agent": "locked"
+  },
+  "latest_reports": {
+    "dev-agent": "reports/dev-agent/implementation.md",
+    "qa-agent": "reports/qa-agent/results.json"
+  },
+  "conflicts": [
+    {
+      "agent": "dev-agent",
+      "type": "state_version_mismatch",
+      "detected_at": "ISO8601",
+      "resolution": "redo_required"
+    }
+  ]
+}
+```
+Conflict detection is based on `state_version` mismatch or overlapping file paths. The agent that writes second must rerun from the latest state snapshot.
+
 ### 5.5 Migration
 - Inventory current flows; port to **LangGraph** using the validator node as a shared component. Deprecate any non‑LangGraph orchestrations.
 
@@ -281,6 +377,7 @@ Minimal relational schema (logical):
 - **spec_versions**: `(spec_id, vN, sha256, diff_summary, created_at)`
 - **validation_runs**: `(run_id, spec_sha, gates, pass_fail, report_json, sarif, created_at)`
 - **adversarial_findings**: `(run_id, severity, category, code, message, location, waived_until)`
+ - **spec_bodies**: `(spec_sha, content, repo_ref, path, created_at)`
 
 Required behaviors:
 - Persist **every edit** with a content hash and timestamp.
@@ -341,10 +438,15 @@ tags: [search, ux]
 Let users save search filters and re‑use them later.
 
 # Functional Requirements
-- FR-1: Users can save current search criteria as a named filter.
-  - **Validation criteria:** After saving, the filter appears in the user's list.
-- FR-2: Users can apply a saved filter.
-  - **Validation criteria:** Applying a filter yields identical results as the original.
+### FR-1: Save filter
+Users can save current search criteria as a named filter.
+- **Validation Criteria:**
+  - Given an authenticated user, When they save a filter, Then the filter appears in their list.
+
+### FR-2: Apply filter
+Users can apply a saved filter.
+- **Validation Criteria:**
+  - Given a saved filter, When they apply it, Then results match the original criteria.
 
 # Non-Functional Requirements
 - Performance: Apply a filter in ≤ 300 ms at P95.
@@ -358,12 +460,20 @@ Let users save search filters and re‑use them later.
 
 # Deterministic Tests
 ```json
-{"id":"DT-001","description":"Applying a saved filter reproduces results","input":"filter:status=open,priority=high","expected_checksum":"0b5c..."}
+{"id":"DT-001","description":"Applying a saved filter reproduces results","preconditions":"Saved filter exists","input":"filter:status=open,priority=high","expected":"results_hash:0b5c..."}
 ```
 
 # Acceptance Tests
-- AT-1: Saved filter appears immediately in list.
-- AT-2: Applying a saved filter reproduces the same result set.
+### User Stories
+- As a user, I want to save filters so that I can reuse them later.
+
+### Acceptance Criteria
+- [ ] AT-1: Given an authenticated user, When they save a filter, Then it appears in their list.
+- [ ] AT-2: Given a saved filter, When they apply it, Then the result set matches the original.
+
+# Traceability
+- FR-1 -> AT-1, DT-001
+- FR-2 -> AT-2
 
 # Glossary & Definitions
 - PII: Personally Identifiable Information.
