@@ -220,6 +220,96 @@ state = {
 
 ---
 
+### ADR-006: GitHub Issues as Work Queue
+**Status:** APPROVED  
+**Date:** 2025-10-18  
+**Affected By:** OPEN-001 (Agent Communication), OPEN-002 (State Conflict)  
+**Addresses:** Orchestration, Governance
+
+**Decision:**
+All work items are created and tracked as GitHub Issues. Specs are decomposed into issues; agents build and verify issues. Issue labels select agents.
+
+**Rationale:**
+- Native audit trail and collaboration
+- Clear ownership and status
+- Works with existing team workflows
+
+**Implementation:**
+- One issue per task with `spec:<id>` and `agent:<tool>` labels
+- Issue comments used for agent status and handoffs
+
+**Review Criteria:**
+- Issue templates defined
+- Labels enforced
+- Agents update status via comments
+
+---
+
+### ADR-007: Inter-Agent Communication via Issue Comments
+**Status:** APPROVED  
+**Date:** 2025-10-18  
+**Affected By:** OPEN-001 (Agent Communication)  
+**Addresses:** Distributed Pattern, Governance
+
+**Decision:**
+Inter‑agent communication happens exclusively through GitHub issue comments with @mentions.
+
+**Rationale:**
+- Centralized, searchable audit log
+- Simplifies handoffs and conflict resolution
+
+**Implementation:**
+- Standard comment format with STATUS, Findings, Next, Artifacts
+- @agent-<tool> mentions for routing
+
+**Review Criteria:**
+- Comment schema published
+- Agent clients adhere to schema
+
+---
+
+### ADR-008: Agent Registry Managed by Web UI
+**Status:** APPROVED  
+**Date:** 2025-10-18  
+**Affected By:** Tooling, Orchestration  
+**Addresses:** Agent Swappability, Web UI
+
+**Decision:**
+Agents (Claude/Codex/Gemini/DeepSeek/etc.) are defined in a registry configurable in the Web UI.
+
+**Rationale:**
+- Allows swapping providers without code changes
+- Enables per‑spec model selection
+
+**Implementation:**
+- Registry stored in service config
+- UI exposes enable/disable and model selection
+
+**Review Criteria:**
+- Registry schema defined
+- UI supports edits and audits
+
+---
+
+### ADR-009: specmas CLI as NPM Package
+**Status:** APPROVED  
+**Date:** 2025-10-18  
+**Affected By:** Tooling  
+**Addresses:** CLI Distribution
+
+**Decision:**
+Publish `specmas` as an npm package with a `specmas` bin (similar to `aic`).
+
+**Rationale:**
+- Simplifies installation and updates
+- Aligns with ai‑coord distribution model
+
+**Review Criteria:**
+- `bin` entry present in package.json
+- `npx specmas` works
+
+---
+
 ### ADR-006: Git-Based Compliance & Audit Trail
 **Status:** APPROVED  
 **Date:** 2025-10-16  
@@ -584,4 +674,3 @@ DEFERRED (Future decision points):
 - **Architecture Lead:** [Pending]
 - **Product Owner:** [Pending]
 - **Security/Compliance:** [N/A for v1]
-

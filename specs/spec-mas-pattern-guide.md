@@ -395,6 +395,17 @@ Location: plans/user-payment-system/
     └── task-4-integration-tests.json
 ```
 
+#### Stage 2.5: Issue Queue (GitHub)
+**Timeline:** 5-10 minutes (automated)
+
+```
+Decomposition → GitHub Issues:
+1. Create issues per task area (backend, frontend, tests, docs)
+2. Apply labels: spec:<id>, phase:plan|implement|verify, agent:<tool>, area:<domain>
+3. Assign agents via labels (e.g., agent:claude, agent:codex)
+4. Inter-agent communication occurs via issue comments with @mentions
+```
+
 #### Stage 3: Parallel Agent Development
 **Timeline:** 2-8 hours (depending on complexity)
 

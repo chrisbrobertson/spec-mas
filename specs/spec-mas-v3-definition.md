@@ -364,6 +364,62 @@ feature/<spec-id>/
 ```
 Conflict detection is based on `state_version` mismatch or overlapping file paths. The agent that writes second must rerun from the latest state snapshot.
 
+### 5.6 Work Queue — GitHub Issues (Required)
+**Decision**: All work items are created and tracked as GitHub Issues. Specs are decomposed into issues; agents implement and verify issues.
+
+**Issue lifecycle**
+- **Decompose**: Spec → Issue per task (backend, frontend, tests, docs).
+- **Assign**: Issue labels select agent/tool (e.g., `agent:claude`, `agent:codex`, `agent:gemini`, `agent:deepseek`).
+- **Execute**: Agent reads issue body + linked spec, performs work, and posts results to the issue.
+- **Verify**: Validator agent comments with gaps or PASS.
+- **Close**: Human or policy app closes when PASS + required checks complete.
+
+**Required labels**
+- `spec:<spec-id>` (source spec)
+- `phase:plan|implement|verify|done`
+- `agent:<tool-name>`
+- `area:backend|frontend|tests|docs|ops`
+
+**Issue template (minimum fields)**
+```
+Title: [spec-id] <task summary>
+Spec: <link to spec>
+Scope: <what to build>
+Acceptance: <Given/When/Then>
+Definition of Done: <checks>
+Dependencies: <issue links>
+```
+
+### 5.7 Inter‑Agent Communication — Issue Comments (Required)
+All inter‑agent communication occurs via GitHub issue comments using @mentions for the target agent.
+
+**Comment protocol**
+```
+@agent-<tool> STATUS: <STARTED|BLOCKED|PASS|FAIL>
+Context: <brief>
+Findings:
+- <gap or result>
+Next:
+- <next action or handoff>
+Artifacts: <links to reports or commits>
+```
+
+### 5.8 Agent Registry & Tool Profiles (Swappable Agents)
+Agents are configured via a registry and can be swapped without code changes. The registry is managed by the Web Control UI and stored in the service config.
+
+**Agent profile fields**
+- `id`, `display_name`, `provider` (claude|openai|gemini|deepseek|local)
+- `tool_type` (cli|api)
+- `command` or `endpoint`
+- `model`, `max_tokens`, `temperature`
+- `capabilities` (implement|review|test)
+- `cost_rate` (per 1M tokens)
+- `enabled` (bool)
+
+**Selection policy**
+- Issue label `agent:<tool>` overrides defaults.
+- Web UI can set global defaults and per‑spec overrides.
+
 ### 5.5 Migration
 - Inventory current flows; port to **LangGraph** using the validator node as a shared component. Deprecate any non‑LangGraph orchestrations.
 
@@ -378,6 +434,9 @@ Minimal relational schema (logical):
 - **validation_runs**: `(run_id, spec_sha, gates, pass_fail, report_json, sarif, created_at)`
 - **adversarial_findings**: `(run_id, severity, category, code, message, location, waived_until)`
  - **spec_bodies**: `(spec_sha, content, repo_ref, path, created_at)`
+ - **work_items**: `(issue_id, spec_id, phase, agent, status, created_at, closed_at)`
+ - **issue_comments**: `(issue_id, author, body, created_at)`
+ - **agent_registry**: `(agent_id, provider, tool_type, model, enabled, config_json)`
 
 Required behaviors:
 - Persist **every edit** with a content hash and timestamp.
@@ -394,6 +453,22 @@ Required behaviors:
 - `specmas import legacy.yaml > new-spec.md` — one‑time YAML importer.
 - `specmas graph-run` — call the LangGraph pipeline.
 
+**NPM Packaging**
+- Publish `specmas` as an npm package with a `specmas` bin (similar to `aic`).
+- Support `npx specmas` and `npm install -g specmas`.
+
+### 7.3 Web Control UI (Required for Distributed Pattern)
+The Web UI provides operational visibility and agent configuration:
+- **Live pipeline state**: current spec, phase, next step, ETA.
+- **Issue queue**: open issues, assignees, labels, status.
+- **Agent registry**: enable/disable tools, switch models (e.g., DeepSeek).
+- **Artifacts**: links to reports (JSON/SARIF/traceability).
+ 
+UI surfaces must include:
+- Run timeline with phase outcomes.
+- Issue‑level detail (latest agent comment, next action).
+- Global alerts for failures and cost thresholds.
+
 ### 7.2 Integrations (Non‑CI/CD)
 - **Repository policy app**: block merges if a run fails gates (policy lives in the app; Spec‑MAS remains agnostic).
 - **Chat/Editor integrations**: Slack command or editor action sends the spec to the Service for a run and displays the artifacts.
@@ -406,6 +481,7 @@ Required behaviors:
 - **RACI**: PM/Author (writes spec), Architect (approves complexity ≥ MODERATE and all HIGH), Security (approves SecurityCriticalSpec), QA/Testing (owns deterministic/acceptance tests mapping).
 - **Waivers**: Documented per‑finding with expiry; tracked in `adversarial_findings` with `waived_until`.
 - **Golden Specs**: One per complexity level that passes the default gate model; used for onboarding.
+ - **Issue Policy**: All work must map to GitHub issues with labels; agents communicate via issue comments with @mentions.
 
 ---
 
