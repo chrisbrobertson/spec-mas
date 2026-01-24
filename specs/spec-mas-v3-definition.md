@@ -457,9 +457,9 @@ Required behaviors:
 - Publish `specmas` as an npm package with a `specmas` bin (similar to `aic`).
 - Support `npx specmas` and `npm install -g specmas`.
 
-**Agent Adapter Layer (AI-Coord Compatible)**
+**Agent Adapter Layer (Patterned After AI-Coord)**
 - Reuse ai-coord-style tool registry definitions for CLI tools (Claude/Codex/Gemini/DeepSeek).
-- Persist session state in an ai-coord-compatible structure for shared visibility.
+- Persist session state in an ai-coord-patterned structure for shared visibility (not strict compatibility).
 
 ### 7.3 Web Control UI (Required for Distributed Pattern)
 The Web UI provides operational visibility and agent configuration:

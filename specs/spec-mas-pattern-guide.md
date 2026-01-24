@@ -265,9 +265,9 @@ claude-agent develop --spec specs/feature-name.md
 - All AI work happens in background
 - Review and approve via terminal or editor extensions
 
-**AI-Coord Compatibility:**
-- If `ai-coord` is installed, Spec‑MAS can delegate CLI tool detection and role‑based invocation to the ai‑coord registry.
-- Lead/validator roles map directly to ai‑coord permission profiles.
+**AI-Coord Patterning:**
+- Spec‑MAS can model CLI tool detection and role‑based invocation after ai‑coord’s registry patterns.
+- Lead/validator roles map to equivalent permission profiles without requiring direct compatibility.
 
 ---
 

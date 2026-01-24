@@ -14,6 +14,7 @@ const { runPipeline, resumePipeline } = require('./pipeline-orchestrator');
 const { ConfigManager } = require('./config-manager');
 const { estimateCost } = require('./cost-estimator');
 const { initProject } = require('./init-project');
+const { detectTools } = require('./agent-registry');
 
 // Package info
 const packageJson = require(path.resolve(__dirname, '..', '..', 'package.json'));
@@ -137,6 +138,19 @@ program
       });
     } catch (error) {
       process.exit(1);
+    }
+  });
+
+program
+  .command('tools')
+  .description('List available AI CLI tools')
+  .action(async () => {
+    const { available, missing } = detectTools(process.env);
+    for (const [name, tool] of available.entries()) {
+      console.log(`${name}: ${tool.version} (${tool.path})`);
+    }
+    for (const name of missing.values()) {
+      console.log(`${name}: not found`);
     }
   });
 

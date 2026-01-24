@@ -2,7 +2,7 @@
 specmas: v3
 kind: FeatureSpec
 id: feat-specmas-agent-adapters
-name: Spec-MAS Agent Adapter Layer (AI-Coord Compatible)
+name: Spec-MAS Agent Adapter Layer (Patterned After AI-Coord)
 version: 0.1.0
 owners:
   - name: Chris
@@ -17,18 +17,18 @@ tags: [agents, tooling, ai-coord]
 - Success metrics: Adding a new CLI tool requires only a registry entry + command mapping.
 
 # Functional Requirements
-### FR-1: Tool Registry Compatibility
-Support ai-coord-style tool registry definitions (name, command, version check, capabilities).
+### FR-1: Tool Registry Pattern
+Use ai-coord-style tool registry definitions (name, command, version check, capabilities), without requiring direct compatibility.
 - **Validation Criteria:**
-  - Given an ai-coord tool definition, When loaded, Then Spec-MAS can detect and invoke the tool.
+  - Given a tool definition matching the pattern, When loaded, Then Spec-MAS can detect and invoke the tool.
 
 ### FR-2: Lead/Validator Role Mapping
 Map Spec-MAS roles to tool permissions (lead = write, validator = read-only) using ai-coord patterns.
 - **Validation Criteria:**
   - Given a validator role, When invoked, Then tool runs in read-only mode if supported.
 
-### FR-3: Session State Interop
-Persist run state in a compatible structure with ai-coord sessions (`.ai-coord/`-like metadata) for shared visibility.
+### FR-3: Session State Pattern
+Persist run state with a structure patterned after ai-coord sessions for shared visibility, without requiring identical paths or formats.
 - **Validation Criteria:**
   - Given a run, When state is written, Then it includes per-spec cycles and validation results.
 
@@ -53,8 +53,8 @@ Allow tool command templates to be configured via Web UI agent registry.
 - Audit & logging: Log tool invocations and outcomes
 
 # Interfaces & Contracts
-- Tool registry schema compatible with ai-coord `TOOL_DEFINITIONS`
-- Session state schema compatible with ai-coord `sessions/<id>.json`
+- Tool registry schema patterned after ai-coord `TOOL_DEFINITIONS`
+- Session state schema patterned after ai-coord `sessions/<id>.json`
 
 # Acceptance Tests
 ### Acceptance Criteria
@@ -64,4 +64,3 @@ Allow tool command templates to be configured via Web UI agent registry.
 
 # Risks & Open Questions
 - R-1: Vendor CLI breaking changes.
-
