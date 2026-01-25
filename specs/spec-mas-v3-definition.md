@@ -223,6 +223,7 @@ flowchart LR
   end
 
   PER --> DB[(Spec Store)]
+  PER --> STATE[(Central State Store)]
   PER --> AR[(Artifacts: JSON, SARIF, HTML)]
   AR --> Slack
   AR --> Editor
@@ -230,6 +231,7 @@ flowchart LR
 
   classDef store fill:#f6f6f6,stroke:#999,stroke-width:1px;
   class DB store
+  class STATE store
 ```
 
 ### 5.2 Workflow (Sequence)
@@ -253,6 +255,7 @@ sequenceDiagram
   Graph->>Adversary: Run 5 adversaries
   Adversary-->>Graph: Findings (JSON)
   Graph->>Store: Persist spec SHA + reports
+  Graph->>Service: Update central run state
   Graph-->>Service: pass/fail + artifacts
   Service-->>Editor: Show SHA & summary
 ```
@@ -364,6 +367,20 @@ feature/<spec-id>/
 ```
 Conflict detection is based on `state_version` mismatch or overlapping file paths. The agent that writes second must rerun from the latest state snapshot.
 
+### 5.5.4 Central Orchestration Server (Required)
+**Decision**: A central Spec‑MAS Server maintains global run state across agents running in different locations.
+
+**Responsibilities**
+- Accept run requests from CLI or integrations.
+- Maintain canonical state for each run/spec/issue.
+- Expose state to Web UI and APIs.
+- Persist audit logs and artifacts.
+
+### 5.5.5 Remote Agents (Initial: npm CLI)
+Agents may run on different machines and connect to the central server.
+- Initial transport: `specmas` npm CLI communicates with the server API.
+- Future transport: additional integrations (IDE, CI, chat).
+
 ### 5.6 Work Queue — GitHub Issues (Required)
 **Decision**: All work items are created and tracked as GitHub Issues. Specs are decomposed into issues; agents implement and verify issues.
 
@@ -404,6 +421,23 @@ Next:
 Artifacts: <links to reports or commits>
 ```
 
+**Structured Run Update (ai‑coord pattern)**
+Each run produces a structured update that is posted to the issue and stored as the canonical run record.
+```
+@agent-<tool> STATUS: <STARTED|BLOCKED|PASS|FAIL>
+Run: <run-id>
+Spec: <spec-id>
+Issue: <issue-number>
+Phase: <phase>
+Completeness: <0-100>%
+Findings:
+- <gap or result>
+Next:
+- <next action or handoff>
+Artifacts:
+- <links to reports/commits>
+```
+
 ### 5.8 Agent Registry & Tool Profiles (Swappable Agents)
 Agents are configured via a registry and can be swapped without code changes. The registry is managed by the Web Control UI and stored in the service config.
 
@@ -420,6 +454,14 @@ Agents are configured via a registry and can be swapped without code changes. Th
 - Issue label `agent:<tool>` overrides defaults.
 - Web UI can set global defaults and per‑spec overrides.
 
+### 5.9 Central State API (Required)
+Minimum API endpoints served by the central server:
+- `GET /api/runs` — list runs and phases
+- `GET /api/runs/:id` — run detail
+- `GET /api/issues` — issue queue view
+- `GET /api/agents` — agent registry
+- `PATCH /api/agents/:id` — update agent config
+
 ### 5.5 Migration
 - Inventory current flows; port to **LangGraph** using the validator node as a shared component. Deprecate any non‑LangGraph orchestrations.
 
@@ -433,10 +475,11 @@ Minimal relational schema (logical):
 - **spec_versions**: `(spec_id, vN, sha256, diff_summary, created_at)`
 - **validation_runs**: `(run_id, spec_sha, gates, pass_fail, report_json, sarif, created_at)`
 - **adversarial_findings**: `(run_id, severity, category, code, message, location, waived_until)`
- - **spec_bodies**: `(spec_sha, content, repo_ref, path, created_at)`
- - **work_items**: `(issue_id, spec_id, phase, agent, status, created_at, closed_at)`
- - **issue_comments**: `(issue_id, author, body, created_at)`
- - **agent_registry**: `(agent_id, provider, tool_type, model, enabled, config_json)`
+- **spec_bodies**: `(spec_sha, content, repo_ref, path, created_at)`
+- **work_items**: `(issue_id, spec_id, phase, agent, status, created_at, closed_at)`
+- **issue_comments**: `(issue_id, author, body, created_at)`
+- **agent_registry**: `(agent_id, provider, tool_type, model, enabled, config_json)`
+- **run_state**: `(run_id, spec_id, phase, status, updated_at, next_step, state_json)`
 
 Required behaviors:
 - Persist **every edit** with a content hash and timestamp.
@@ -472,6 +515,7 @@ UI surfaces must include:
 - Run timeline with phase outcomes.
 - Issue‑level detail (latest agent comment, next action).
 - Global alerts for failures and cost thresholds.
+ - Centralized view across all remote agents and workspaces.
 
 ### 7.2 Integrations (Non‑CI/CD)
 - **Repository policy app**: block merges if a run fails gates (policy lives in the app; Spec‑MAS remains agnostic).

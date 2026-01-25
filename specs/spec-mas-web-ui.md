@@ -17,8 +17,8 @@ tags: [webui, orchestration, observability]
 - Success metrics: Operators can find run status in <30s and update agent config in <2 min.
 
 # Functional Requirements
-### FR-1: Live Run Dashboard
-Display current run status per spec (phase, progress, last update, next step).
+### FR-1: Live Run Dashboard (Central Server)
+Display current run status per spec across all remote agents (phase, progress, last update, next step).
 - **Validation Criteria:**
   - Given a run is active, When I open the dashboard, Then I see the current phase and next step.
 
@@ -33,7 +33,7 @@ Provide issue detail with full comment history and links to artifacts.
   - Given an issue, When I open details, Then I see comments and artifact links.
 
 ### FR-4: Agent Registry Management
-Allow enabling/disabling tools and selecting default models per agent.
+Allow enabling/disabling tools and selecting default models per agent (stored in central server).
 - **Validation Criteria:**
   - Given registry entries, When I toggle enablement, Then it updates the stored config.
 
@@ -63,11 +63,12 @@ Surface failures (gate failures, blocked issues, cost warnings) in a global aler
 - Agent { id, provider, model, enabled }
 
 # Interfaces & Contracts
-- GET /api/ui/runs
-- GET /api/ui/issues
-- GET /api/ui/issues/:id
-- GET /api/ui/agents
-- PATCH /api/ui/agents/:id
+- GET /api/runs
+- GET /api/runs/:id
+- GET /api/issues
+- GET /api/issues/:id
+- GET /api/agents
+- PATCH /api/agents/:id
 
 # Acceptance Tests
 ### Acceptance Criteria
@@ -77,4 +78,3 @@ Surface failures (gate failures, blocked issues, cost warnings) in a global aler
 
 # Risks & Open Questions
 - R-1: UI performance with large issue queues.
-

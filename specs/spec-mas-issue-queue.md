@@ -33,9 +33,25 @@ Assign issues to agents based on `agent:<tool>` label.
   - Given `agent:claude`, When the queue is processed, Then Claude is selected.
 
 ### FR-4: Comment-Based Communication
-All agent status updates and handoffs happen via issue comments with @mentions.
+All agent status updates and handoffs happen via issue comments with @mentions, using a structured update format (patterned after ai-coord run updates).
 - **Validation Criteria:**
   - Given an agent completes work, When it comments, Then the comment includes STATUS and next action.
+
+**Structured Update Format (Required)**
+```
+@agent-<tool> STATUS: <STARTED|BLOCKED|PASS|FAIL>
+Run: <run-id>
+Spec: <spec-id>
+Issue: <issue-number>
+Phase: <phase>
+Completeness: <0-100>%
+Findings:
+- <gap or result>
+Next:
+- <next action or handoff>
+Artifacts:
+- <links to reports/commits>
+```
 
 ### FR-5: Verification Workflow
 Validator agents comment PASS/FAIL and link artifacts.
@@ -75,4 +91,3 @@ Validator agents comment PASS/FAIL and link artifacts.
 
 # Risks & Open Questions
 - R-1: GitHub rate limits under heavy automation.
-
