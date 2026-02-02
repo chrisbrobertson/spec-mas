@@ -56,13 +56,20 @@ program
   .option('--skip-validation', 'Skip spec validation phase')
   .option('--skip-review', 'Skip adversarial review phase')
   .option('--skip-tests', 'Skip test generation phase')
+  .option('--skip-run-tests', 'Skip test execution phase')
   .option('--skip-implementation', 'Skip code implementation phase')
   .option('--skip-integration', 'Skip code integration phase')
   .option('--skip-qa', 'Skip QA validation phase')
   .option('--dry-run', 'Show what would happen without executing')
   .option('--budget <amount>', 'Set maximum API cost budget in dollars', '50')
   .option('--output-dir <dir>', 'Output directory for generated code', 'implementation-output')
-  .option('--resume', 'Resume from last checkpoint')
+  .option('--run-id <id>', 'Use a specific run id for outputs')
+  .option('--resume <runId>', 'Resume a previous run by id')
+  .option('--from-step <name>', 'Start execution from the given step')
+  .option('--stop-after <name>', 'Stop execution after the given step')
+  .option('--list-steps', 'List available step names and exit')
+  .option('--max-fix-iterations <n>', 'Maximum fix-loop iterations', '0')
+  .option('--dry-run-fix', 'Show fix-loop patches without applying them')
   .option('--parallel', 'Run implementation tasks in parallel (faster but more expensive)')
   .option('--no-git', 'Skip git operations')
   .option('-y, --yes', 'Skip all confirmations')
@@ -78,8 +85,10 @@ program
       // Load config
       const config = configManager.getConfig();
 
-      // Check for API key
-      if (!process.env.ANTHROPIC_API_KEY && !config.api.anthropic_key) {
+      const needsAI = !(options.skipImplementation && options.skipReview);
+
+      // Check for API key when AI steps are enabled
+      if (needsAI && !options.dryRun && !options.listSteps && !process.env.ANTHROPIC_API_KEY && !config.api.anthropic_key) {
         console.error(colorize('\n✗ Error: ANTHROPIC_API_KEY not found', 'red'));
         console.log('\nSet it with:');
         console.log('  export ANTHROPIC_API_KEY=your-key-here');
@@ -92,7 +101,7 @@ program
       if (options.resume) {
         await resumePipeline(specPath, options);
       } else {
-        await runPipeline(specPath, options, config);
+        await runPipeline(specPath, options);
       }
 
     } catch (error) {
@@ -548,7 +557,7 @@ program
       console.log('  specmas run specs/my-feature.md --skip-review --skip-tests\n');
 
       console.log('  # Resume from checkpoint');
-      console.log('  specmas run specs/my-feature.md --resume\n');
+      console.log('  specmas run specs/my-feature.md --resume <run-id>\n');
 
       console.log(colorize('DOCUMENTATION:', 'bright'));
       console.log('  docs/cli-reference.md              Complete CLI reference');

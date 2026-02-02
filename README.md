@@ -37,6 +37,21 @@ cp specs/TEMPLATE-STARTUP.md specs/features/your-feature.md
 
 ---
 
+## ✅ CI (How It Works)
+
+The default GitHub Actions workflow runs these steps on every push/PR to `main`:
+
+1. `npm ci`
+2. `npm run lint`
+3. `npm run format:check`
+4. `npm test`
+5. `npm run validate-spec specs/examples/smoke-feature.md`
+6. `npm run pipeline -- --dry-run specs/examples/smoke-feature.md`
+
+Environment variables referenced by scripts are documented in `.env.example`.
+
+---
+
 ## 💡 Why Spec-MAS?
 
 ### The Problem: Side Projects are Hard
@@ -167,6 +182,19 @@ Cost:
 - **Phase 3: Test Generation** - See [docs/phase-3-test-generation-guide.md](docs/phase-3-test-generation-guide.md)
 - **Maturity Levels** - See ARCHITECTURE.md (Section 4.1.3)
 - **Complexity Guide** - See ARCHITECTURE.md (Section 4.1.4)
+
+### Resume Examples
+
+```
+# Start a run and capture the run id from runs/<id>/
+specmas run specs/examples/smoke-feature.md
+
+# Resume a previous run by id
+specmas run specs/examples/smoke-feature.md --resume <run-id>
+
+# Start from a specific step
+specmas run specs/examples/smoke-feature.md --from-step test-generation
+```
 
 ---
 

@@ -5,9 +5,11 @@
 
 const fs = require('fs');
 const path = require('path');
-const { execSync, spawn } = require('child_process');
-const { ProgressTracker } = require('./progress-tracker');
-const { ConfigManager } = require('./config-manager');
+const { StepOrchestrator } = require('../src/run-state/step-orchestrator');
+const { ValidateSpecStep } = require('../src/steps/validate-spec-step');
+const { ScriptStep } = require('../src/steps/script-step');
+const { GenerateTestsStep } = require('../src/steps/generate-tests-step');
+const { RunTestsStep } = require('../src/steps/run-tests-step');
 
 // Pipeline phase definitions
 const PIPELINE_PHASES = [
@@ -52,6 +54,14 @@ const PIPELINE_PHASES = [
     estimatedCost: 0
   },
   {
+    id: 'run-tests',
+    name: 'Run Tests',
+    script: null,
+    required: true,
+    estimatedTime: '1-2min',
+    estimatedCost: 0
+  },
+  {
     id: 'qa-validation',
     name: 'QA Validation',
     script: 'validate-implementation.js',
@@ -78,92 +88,32 @@ function colorize(text, color) {
   return `${colors[color] || ''}${text}${colors.reset}`;
 }
 
+function findLatestRunForSpec(specFile, baseDir = path.join(process.cwd(), 'runs')) {
+  if (!fs.existsSync(baseDir)) return null;
+  const entries = fs.readdirSync(baseDir, { withFileTypes: true })
+    .filter(entry => entry.isDirectory())
+    .map(entry => path.join(baseDir, entry.name, 'run.json'))
+    .filter(runFile => fs.existsSync(runFile));
+
+  let latest = null;
+  for (const runFile of entries) {
+    const runState = JSON.parse(fs.readFileSync(runFile, 'utf8'));
+    if (runState.spec_path !== path.resolve(specFile)) continue;
+    if (!latest || new Date(runState.created_at) > new Date(latest.created_at)) {
+      latest = runState;
+    }
+  }
+  return latest;
+}
+
 /**
  * Pipeline Orchestrator Class
  */
 class PipelineOrchestrator {
   constructor(specFile, options) {
     this.specFile = path.resolve(specFile);
-    this.options = options;
-    this.stateFile = this.getStateFilePath();
-    this.state = this.loadState();
-    this.tracker = new ProgressTracker(PIPELINE_PHASES.length);
+    this.options = options || {};
     this.startTime = Date.now();
-  }
-
-  /**
-   * Get state file path for this spec
-   */
-  getStateFilePath() {
-    const specDir = path.dirname(this.specFile);
-    const specName = path.basename(this.specFile, '.md');
-    const stateDir = path.join(process.cwd(), '.specmas');
-
-    if (!fs.existsSync(stateDir)) {
-      fs.mkdirSync(stateDir, { recursive: true });
-    }
-
-    return path.join(stateDir, `${specName}-state.json`);
-  }
-
-  /**
-   * Load pipeline state from disk
-   */
-  loadState() {
-    if (fs.existsSync(this.stateFile)) {
-      try {
-        return JSON.parse(fs.readFileSync(this.stateFile, 'utf8'));
-      } catch (error) {
-        console.warn(colorize('⚠ Warning: Could not load state file, starting fresh', 'yellow'));
-      }
-    }
-
-    return {
-      specFile: this.specFile,
-      startedAt: new Date().toISOString(),
-      status: 'not_started',
-      currentPhase: null,
-      completedPhases: [],
-      costs: {
-        total: 0
-      },
-      outputs: {
-        tests: null,
-        code: null,
-        reports: {}
-      }
-    };
-  }
-
-  /**
-   * Save pipeline state to disk
-   */
-  saveState() {
-    try {
-      fs.writeFileSync(this.stateFile, JSON.stringify(this.state, null, 2));
-    } catch (error) {
-      console.error(colorize('⚠ Warning: Could not save state file', 'yellow'));
-    }
-  }
-
-  /**
-   * Get current pipeline status
-   */
-  getStatus() {
-    const totalPhases = this.getApplicablePhases().length;
-    const completedCount = this.state.completedPhases.length;
-    const pendingPhases = this.getApplicablePhases()
-      .filter(p => !this.state.completedPhases.includes(p.id))
-      .map(p => p.name);
-
-    return {
-      status: this.state.status,
-      currentPhase: this.state.currentPhase,
-      completedPhases: this.state.completedPhases,
-      pendingPhases: pendingPhases,
-      totalPhases: totalPhases,
-      costs: this.state.costs
-    };
   }
 
   /**
@@ -171,7 +121,6 @@ class PipelineOrchestrator {
    */
   getApplicablePhases() {
     return PIPELINE_PHASES.filter(phase => {
-      // Check if phase is skipped
       const skipOption = `skip${phase.id.split('-').map(w =>
         w.charAt(0).toUpperCase() + w.slice(1)
       ).join('')}`;
@@ -180,7 +129,18 @@ class PipelineOrchestrator {
         return false;
       }
 
-      // Check if phase is required
+      if (phase.id === 'test-generation' && this.options.skipTests) {
+        return false;
+      }
+
+      if (phase.id === 'qa-validation' && this.options.skipQa) {
+        return false;
+      }
+
+      if (phase.id === 'run-tests' && this.options.skipRunTests) {
+        return false;
+      }
+
       if (!phase.required && this.options.skipReview && phase.id === 'review') {
         return false;
       }
@@ -190,77 +150,95 @@ class PipelineOrchestrator {
   }
 
   /**
+   * Get current pipeline status
+   */
+  getStatus() {
+    const runState = findLatestRunForSpec(this.specFile);
+    const phases = this.getApplicablePhases();
+
+    if (!runState) {
+      return {
+        status: 'not_started',
+        currentPhase: null,
+        completedPhases: [],
+        pendingPhases: phases.map(p => p.id),
+        totalPhases: phases.length,
+        costs: { total: 0 }
+      };
+    }
+
+    const completedPhases = Object.entries(runState.steps)
+      .filter(([, state]) => state.status === 'completed')
+      .map(([name]) => name);
+
+    const pendingPhases = phases
+      .map(p => p.id)
+      .filter(id => !completedPhases.includes(id));
+
+    const runningPhase = Object.entries(runState.steps)
+      .find(([, state]) => state.status === 'running');
+
+    return {
+      status: runState.status,
+      currentPhase: runningPhase ? runningPhase[0] : null,
+      completedPhases,
+      pendingPhases,
+      totalPhases: phases.length,
+      costs: runState.costs || { total: 0 }
+    };
+  }
+
+  /**
    * Estimate total cost
    */
   estimateTotalCost() {
     return this.getApplicablePhases().reduce((sum, phase) => sum + phase.estimatedCost, 0);
   }
 
-  /**
-   * Run a single phase
-   */
-  async runPhase(phase, phaseIndex) {
-    console.log(colorize(`\n[${phaseIndex + 1}/${this.getApplicablePhases().length}] ${phase.name}...`, 'bright'));
-
-    this.state.currentPhase = phase.id;
-    this.state.status = 'in_progress';
-    this.saveState();
-
-    try {
-      // Update progress tracker
-      this.tracker.startPhase(phaseIndex, phase.name);
-
-      // Build command
-      const scriptPath = path.join(__dirname, phase.script);
-      let args = [this.specFile];
-
-      // Add phase-specific options
-      if (phase.id === 'review' && this.options.parallel) {
-        args.push('--parallel');
+  buildSteps(phases) {
+    return phases.map(phase => {
+      switch (phase.id) {
+        case 'validation':
+          return new ValidateSpecStep();
+        case 'review':
+          return new ScriptStep({
+            name: phase.id,
+            script: phase.script,
+            args: ctx => {
+              const args = [ctx.specPath];
+              if (ctx.options.parallel) args.push('--parallel');
+              return args;
+            }
+          });
+        case 'implementation':
+          return new ScriptStep({
+            name: phase.id,
+            script: phase.script,
+            args: ctx => {
+              const args = [ctx.specPath];
+              if (ctx.options.parallel) args.push('--parallel');
+              if (ctx.options.outputDir) args.push('--output-dir', ctx.options.outputDir);
+              return args;
+            }
+          });
+        case 'integration':
+          return new ScriptStep({
+            name: phase.id,
+            script: phase.script,
+            args: ctx => [ctx.options.outputDir || 'implementation-output']
+          });
+        case 'run-tests':
+          return new RunTestsStep();
+        case 'test-generation':
+          return new GenerateTestsStep();
+        default:
+          return new ScriptStep({
+            name: phase.id,
+            script: phase.script,
+            args: ctx => [ctx.specPath]
+          });
       }
-      if (phase.id === 'implementation') {
-        if (this.options.parallel) args.push('--parallel');
-        if (this.options.outputDir) args.push('--output-dir', this.options.outputDir);
-      }
-      if (phase.id === 'integration') {
-        args = [this.options.outputDir || 'implementation-output'];
-      }
-
-      // Execute phase script
-      const result = this.executePhase(scriptPath, args);
-
-      // Mark phase complete
-      this.state.completedPhases.push(phase.id);
-      this.tracker.completePhase(phaseIndex);
-
-      // Save checkpoint
-      this.saveState();
-
-      return result;
-
-    } catch (error) {
-      this.state.status = 'failed';
-      this.state.error = error.message;
-      this.saveState();
-
-      console.error(colorize(`\n✗ Phase failed: ${error.message}`, 'red'));
-      throw error;
-    }
-  }
-
-  /**
-   * Execute a phase script
-   */
-  executePhase(scriptPath, args) {
-    try {
-      const output = execSync(`node ${scriptPath} ${args.join(' ')}`, {
-        stdio: 'inherit',
-        encoding: 'utf8'
-      });
-      return { success: true, output };
-    } catch (error) {
-      throw new Error(`Phase execution failed: ${error.message}`);
-    }
+    });
   }
 
   /**
@@ -281,7 +259,6 @@ class PipelineOrchestrator {
       });
       console.log(`\n  ${colorize('Total Estimated:', 'bright').padEnd(25)} ${colorize('$' + totalCost.toFixed(2), 'yellow')}`);
 
-      // Ask for confirmation
       const readline = require('readline');
       const rl = readline.createInterface({
         input: process.stdin,
@@ -299,7 +276,14 @@ class PipelineOrchestrator {
       }
     }
 
-    // Dry run mode
+    const totalCost = this.estimateTotalCost();
+    const budget = parseFloat(this.options.budget || '0');
+    if (budget > 0 && totalCost > budget) {
+      console.error(colorize('\n✗ Budget exceeded. Stopping pipeline.', 'red'));
+      console.error(`Estimated cost: $${totalCost.toFixed(2)} / Budget: $${budget.toFixed(2)}\n`);
+      process.exit(2);
+    }
+
     if (this.options.dryRun) {
       console.log(colorize('\n─── DRY RUN MODE ────────────────────────────────────────', 'yellow'));
       console.log('\nPhases that would be executed:');
@@ -310,27 +294,28 @@ class PipelineOrchestrator {
       return;
     }
 
-    // Run phases
     console.log(colorize('\n─── Running Pipeline ────────────────────────────────────', 'blue'));
-    this.tracker.start();
 
-    for (let i = 0; i < phases.length; i++) {
-      const phase = phases[i];
+    const steps = this.buildSteps(phases);
+    const stepOrchestrator = new StepOrchestrator(this.specFile, steps, {
+      runId: this.options.runId,
+      resume: this.options.resume,
+      fromStep: this.options.fromStep,
+      stopAfter: this.options.stopAfter,
+      listSteps: this.options.listSteps,
+      dryRun: this.options.dryRun,
+      maxFixIterations: Number(this.options.maxFixIterations || 0),
+      dryRunFix: this.options.dryRunFix,
+      estimatedCost: totalCost
+    });
 
-      // Check budget
-      if (this.state.costs.total > parseFloat(this.options.budget)) {
-        console.error(colorize('\n✗ Budget exceeded! Stopping pipeline.', 'red'));
-        console.log(`Total cost: $${this.state.costs.total.toFixed(2)} / $${this.options.budget}\n`);
-        process.exit(1);
-      }
-
-      await this.runPhase(phase, i);
+    if (this.options.listSteps) {
+      const result = await stepOrchestrator.run();
+      result.steps.forEach(step => console.log(step));
+      return;
     }
 
-    // Pipeline complete
-    this.state.status = 'completed';
-    this.state.completedAt = new Date().toISOString();
-    this.saveState();
+    await stepOrchestrator.run();
 
     this.printCompletionSummary();
   }
@@ -339,6 +324,7 @@ class PipelineOrchestrator {
    * Print pipeline header
    */
   printPipelineHeader(phases) {
+    const strictMode = process.env.STRICT_MODE === 'true';
     console.log('\n' + colorize('═'.repeat(60), 'cyan'));
     console.log(colorize('  SPEC-MAS PIPELINE v3.0', 'bright'));
     console.log(colorize('═'.repeat(60), 'cyan') + '\n');
@@ -346,6 +332,7 @@ class PipelineOrchestrator {
     console.log(`Spec: ${colorize(path.basename(this.specFile), 'bright')}`);
     console.log(`Mode: ${this.options.parallel ? 'Parallel' : 'Sequential'}`);
     console.log(`Budget: $${this.options.budget}`);
+    console.log(`STRICT_MODE: ${strictMode ? 'true' : 'false'}`);
     console.log(`Phases: ${phases.length}`);
   }
 
@@ -362,39 +349,14 @@ class PipelineOrchestrator {
     console.log(colorize('═'.repeat(60), 'cyan') + '\n');
 
     console.log(`Total Time: ${minutes}m ${seconds}s`);
-    console.log(`Total Cost: $${this.state.costs.total.toFixed(2)} / $${this.options.budget}`);
-    console.log(`Phases Completed: ${this.state.completedPhases.length}/${this.getApplicablePhases().length}`);
-
-    // Show generated outputs
-    if (this.state.outputs.tests) {
-      console.log(`\nGenerated Tests: ${this.state.outputs.tests}`);
-    }
-    if (this.state.outputs.code) {
-      console.log(`Generated Code: ${this.state.outputs.code}`);
-    }
-
-    // Show reports
-    const reports = Object.values(this.state.outputs.reports).filter(Boolean);
-    if (reports.length > 0) {
-      console.log('\nReports:');
-      reports.forEach(report => {
-        console.log(`  - ${report}`);
-      });
-    }
-
     console.log(colorize('\n✓ All phases completed successfully!\n', 'green'));
-    console.log('Next Steps:');
-    console.log('  1. Review generated code');
-    console.log('  2. Run: npm test');
-    console.log('  3. Run: git diff');
-    console.log('  4. Deploy when ready!\n');
   }
 }
 
 /**
  * Run the complete pipeline
  */
-async function runPipeline(specFile, options, config) {
+async function runPipeline(specFile, options) {
   const orchestrator = new PipelineOrchestrator(specFile, options);
   await orchestrator.run();
 }
@@ -403,24 +365,10 @@ async function runPipeline(specFile, options, config) {
  * Resume pipeline from checkpoint
  */
 async function resumePipeline(specFile, options) {
+  if (!options.resume) {
+    throw new Error('resume requires a run id');
+  }
   const orchestrator = new PipelineOrchestrator(specFile, options);
-
-  if (orchestrator.state.status === 'completed') {
-    console.log(colorize('\n✓ Pipeline already completed for this spec.\n', 'green'));
-    console.log('Use --force to run again.\n');
-    return;
-  }
-
-  if (orchestrator.state.status === 'not_started') {
-    console.log(colorize('\nNo checkpoint found. Running full pipeline...\n', 'yellow'));
-    await orchestrator.run();
-    return;
-  }
-
-  console.log(colorize('\n✓ Resuming from checkpoint...\n', 'green'));
-  console.log(`Completed phases: ${orchestrator.state.completedPhases.join(', ')}`);
-  console.log(`Resuming from: ${orchestrator.state.currentPhase}\n`);
-
   await orchestrator.run();
 }
 
@@ -435,7 +383,6 @@ async function generateReport(specFile, options) {
     return JSON.stringify(status, null, 2);
   }
 
-  // Text format
   let report = '\n' + '═'.repeat(60) + '\n';
   report += '  PIPELINE REPORT\n';
   report += '═'.repeat(60) + '\n\n';

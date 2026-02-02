@@ -4,7 +4,7 @@
   "description": "Spec-MAS v3.0 - Specification-driven development for startups. Write specs, let AI implement.",
   "main": "index.js",
   "bin": {
-    "specmas": "./spec-mas/scripts/specmas.js"
+    "specmas": "./bin/specmas"
   },
   "scripts": {
     "specmas": "node spec-mas/scripts/specmas.js",
@@ -46,6 +46,7 @@
     "test:integration": "jest spec-mas/tests/integration",
     "test:e2e": "jest spec-mas/tests/e2e",
     "test:deterministic": "jest spec-mas/tests/deterministic",
+    "pipeline": "node spec-mas/scripts/specmas.js run",
     "dev": "npm run dev:next",
     "dev:server": "node spec-mas/scripts/specmas.js server",
     "build": "npm run build:next",
@@ -53,8 +54,11 @@
     "lint": "eslint . --ext .js,.jsx,.ts,.tsx",
     "lint:fix": "eslint . --ext .js,.jsx,.ts,.tsx --fix",
     "format": "prettier --write \"**/*.{js,jsx,ts,tsx,json,md}\"",
+    "format:check": "prettier --check \"**/*.{js,jsx,ts,tsx,json,md}\"",
+    "check-tests": "node spec-mas/scripts/check-tests.js",
     "metrics": "node spec-mas/scripts/track-metrics.js",
     "setup": "node spec-mas/scripts/startup-setup.js",
+    "demo": "node spec-mas/scripts/specmas.js run specs/examples/smoke-feature.md --yes --skip-review --skip-implementation --skip-integration --skip-tests --skip-run-tests --skip-qa",
     "precommit": "npm run lint && npm run test",
     "dev:next": "next dev",
     "build:next": "next build",

@@ -27,6 +27,7 @@
 const fs = require('fs');
 const path = require('path');
 const { callAI, calculateCost } = require('./ai-helper');
+const { resolveStepModel } = require('../src/ai/client');
 
 // ==========================================
 // Command Line Arguments
@@ -64,11 +65,12 @@ Examples:
     process.exit(0);
   }
 
+  const routing = resolveStepModel('ai-enhance-tests');
   const config = {
     target: args[0],
     specPath: null,
-    provider: process.env.AI_PROVIDER || 'claude',
-    model: null, // Will be determined by provider
+    provider: routing.provider,
+    model: routing.model,
     dryRun: false,
     verbose: false
   };

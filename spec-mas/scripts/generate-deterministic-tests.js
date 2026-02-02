@@ -21,6 +21,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { parseSpec } = require('./spec-parser');
+const { parseDeterministicTestsFromMarkdown } = require('../src/deterministic-tests/parse-dt');
 
 // ==========================================
 // Command Line Arguments
@@ -73,6 +74,10 @@ function extractDeterministicTests(spec) {
   const tests = spec.sections.deterministicTests || [];
 
   if (tests.length === 0) {
+    const parsed = parseDeterministicTestsFromMarkdown(spec.raw || '');
+    if (parsed.length > 0) {
+      return parsed;
+    }
     // Try to extract from Level 5 concrete examples
     const level5 = spec.sections.level_5_complete_specification || spec.sections.level_5 || {};
 
@@ -103,22 +108,52 @@ function extractDeterministicTests(spec) {
   return tests;
 }
 
+function normalizeDeterministicTests(tests) {
+  return tests.map((test, index) => ({
+    id: test.id || `DT-${index + 1}`,
+    ...test
+  }));
+}
+
+function formatSpecPath(specPath) {
+  const cwd = process.cwd();
+  if (specPath && specPath.startsWith(cwd)) {
+    return path.relative(cwd, specPath);
+  }
+  return specPath ? path.basename(specPath) : 'unknown';
+}
+
+function writeDeterministicFixtures(tests, outputDir) {
+  const fixturesDir = path.join(outputDir, 'fixtures');
+  fs.mkdirSync(fixturesDir, { recursive: true });
+
+  tests.forEach(test => {
+    const fixturePath = path.join(fixturesDir, `${test.id}.json`);
+    const payload = {
+      input: test.input,
+      expected: test.expected,
+      output: test.output,
+      checksum: test.checksum || test.expectedChecksum
+    };
+    fs.writeFileSync(fixturePath, JSON.stringify(payload, null, 2));
+  });
+
+  return fixturesDir;
+}
+
 // ==========================================
 // Test Case Generation
 // ==========================================
 
 function generateChecksumTest(testCase, index) {
-  const input = JSON.stringify(testCase.input, null, 2);
-  const expectedChecksum = testCase.checksum || testCase.expectedChecksum;
-
   return `
   it('should produce correct checksum for test case ${index + 1}', () => {
     // Arrange
-    const input = ${input};
-    const expectedChecksum = '${expectedChecksum}';
+    const fixture = require(path.join(__dirname, 'fixtures', '${testCase.id}.json'));
+    const expectedChecksum = fixture.checksum;
 
     // Act
-    const result = functionUnderTest(input);
+    const result = functionUnderTest(fixture.input);
     const actualChecksum = generateChecksum(result);
 
     // Assert
@@ -128,16 +163,13 @@ function generateChecksumTest(testCase, index) {
 }
 
 function generateSnapshotTest(testCase, index) {
-  const input = JSON.stringify(testCase.input, null, 2);
-  const expectedOutput = testCase.expected || testCase.output;
-
   return `
   it('should match snapshot for test case ${index + 1}', () => {
     // Arrange
-    const input = ${input};
+    const fixture = require(path.join(__dirname, 'fixtures', '${testCase.id}.json'));
 
     // Act
-    const result = functionUnderTest(input);
+    const result = functionUnderTest(fixture.input);
 
     // Assert
     expect(result).toMatchSnapshot();
@@ -146,36 +178,31 @@ function generateSnapshotTest(testCase, index) {
 }
 
 function generateExactMatchTest(testCase, index) {
-  const input = JSON.stringify(testCase.input, null, 2);
-  const expected = JSON.stringify(testCase.expected || testCase.output, null, 2);
-
   return `
   it('should produce exact output for test case ${index + 1}', () => {
     // Arrange
-    const input = ${input};
-    const expected = ${expected};
+    const fixture = require(path.join(__dirname, 'fixtures', '${testCase.id}.json'));
 
     // Act
-    const result = functionUnderTest(input);
+    const result = functionUnderTest(fixture.input);
 
     // Assert
-    expect(result).toEqual(expected);
+    expect(result).toEqual(fixture.expected || fixture.output);
   });
 `;
 }
 
 function generateRegressionTests(testCase, index) {
-  const input = JSON.stringify(testCase.input, null, 2);
-  const description = testCase.description || `Test case ${index + 1}`;
+  const description = testCase.description || testCase.id || `Test case ${index + 1}`;
 
   return `
   describe('${description}', () => {
-    const input = ${input};
+    const fixture = require(path.join(__dirname, 'fixtures', '${testCase.id}.json'));
 
     it('should produce consistent results across runs', () => {
       // Act
-      const result1 = functionUnderTest(input);
-      const result2 = functionUnderTest(input);
+      const result1 = functionUnderTest(fixture.input);
+      const result2 = functionUnderTest(fixture.input);
 
       // Assert - Results should be identical
       expect(result1).toEqual(result2);
@@ -183,23 +210,26 @@ function generateRegressionTests(testCase, index) {
 
     it('should match expected output', () => {
       // Act
-      const result = functionUnderTest(input);
+      const result = functionUnderTest(fixture.input);
 
       // Assert
-      ${testCase.expected || testCase.output
-        ? `expect(result).toEqual(${JSON.stringify(testCase.expected || testCase.output, null, 2)});`
-        : `expect(result).toMatchSnapshot();`
+      if (fixture.expected !== undefined) {
+        expect(result).toEqual(fixture.expected);
+      } else if (fixture.output !== undefined) {
+        expect(result).toEqual(fixture.output);
+      } else {
+        expect(result).toMatchSnapshot();
       }
     });
 
-    ${testCase.checksum ? `
+    ${testCase.checksum || testCase.expectedChecksum ? `
     it('should produce correct checksum', () => {
       // Act
-      const result = functionUnderTest(input);
+      const result = functionUnderTest(fixture.input);
       const checksum = generateChecksum(result);
 
       // Assert
-      expect(checksum).toBe('${testCase.checksum}');
+      expect(checksum).toBe(fixture.checksum);
     });
     ` : ''}
   });
@@ -215,7 +245,7 @@ function generateDeterministicTestFile(spec, tests, config) {
 
   let testFile = `/**
  * Deterministic Tests for ${featureName}
- * Generated from specification: ${spec.filePath}
+ * Generated from specification: ${formatSpecPath(spec.filePath)}
  *
  * These tests validate exact output matches for known inputs.
  * They serve as regression tests to ensure implementation consistency.
@@ -225,6 +255,7 @@ function generateDeterministicTestFile(spec, tests, config) {
  */
 
 const crypto = require('crypto');
+const path = require('path');
 
 // Function under test - TODO: Import actual implementation
 // const { functionUnderTest } = require('../src/${featureName.toLowerCase().replace(/\s+/g, '-')}');
@@ -319,7 +350,7 @@ async function generateDeterministicTests(config) {
 
   // Step 2: Extract deterministic tests
   console.log(`\n🔍 Extracting deterministic tests...`);
-  const tests = extractDeterministicTests(spec);
+  const tests = normalizeDeterministicTests(extractDeterministicTests(spec));
 
   if (tests.length === 0) {
     console.log(`⚠️  No deterministic tests found in spec`);
@@ -341,6 +372,7 @@ async function generateDeterministicTests(config) {
   // Step 4: Generate test file
   console.log(`\n🔧 Generating test file...`);
 
+  writeDeterministicFixtures(tests, config.outputDir);
   const testContent = generateDeterministicTestFile(spec, tests, config);
 
   const featureName = (spec.metadata.name || 'feature')
@@ -399,5 +431,7 @@ if (require.main === module) {
 
 module.exports = {
   generateDeterministicTests,
-  extractDeterministicTests
+  extractDeterministicTests,
+  writeDeterministicFixtures,
+  normalizeDeterministicTests
 };

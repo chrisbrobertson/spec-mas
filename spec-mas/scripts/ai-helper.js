@@ -13,6 +13,7 @@ const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const { resolveStepModel, withRetry, withFallback } = require('../src/ai/client');
 
 // Color codes for terminal output
 const colors = {
@@ -231,45 +232,41 @@ async function callChatGPT(systemPrompt, userPrompt, options = {}) {
  * @returns {Promise<object>} Response with content and token info
  */
 async function callAI(systemPrompt, userPrompt, options = {}) {
-  const provider = options.provider || process.env.AI_PROVIDER || 'claude';
-  const fallbackEnabled = options.fallback ?? (process.env.AI_FALLBACK_ENABLED === 'true');
+  const routing = resolveStepModel(options.stepName || 'default');
+  const provider = (options.provider || routing.provider).toLowerCase();
+  const fallbackEnabled = options.fallback ?? routing.fallback;
+  const model = options.model || routing.model;
 
-  // Normalize provider name
-  const normalizedProvider = provider.toLowerCase();
-
-  try {
-    if (normalizedProvider === 'claude' || normalizedProvider === 'claude-cli') {
-      return await callClaudeCLI(systemPrompt, userPrompt, options);
-    } else if (normalizedProvider === 'openai' || normalizedProvider === 'chatgpt' || normalizedProvider === 'gpt') {
-      return await callChatGPT(systemPrompt, userPrompt, options);
-    } else {
-      throw new Error(
-        `Unknown AI provider: ${provider}\n` +
-        'Valid providers: claude, openai'
-      );
+  const callPrimary = () => withRetry(() => {
+    if (provider === 'claude' || provider === 'claude-cli') {
+      return callClaudeCLI(systemPrompt, userPrompt, { ...options, model });
     }
-  } catch (error) {
-    // Try fallback if enabled and primary provider failed
-    if (fallbackEnabled && normalizedProvider === 'claude') {
-      console.warn(
-        colors.yellow +
-        `Warning: Claude CLI failed (${error.message}), attempting OpenAI fallback...` +
-        colors.reset
-      );
-
-      try {
-        return await callChatGPT(systemPrompt, userPrompt, options);
-      } catch (fallbackError) {
-        throw new Error(
-          `Both providers failed:\n` +
-          `  Claude: ${error.message}\n` +
-          `  OpenAI: ${fallbackError.message}`
-        );
-      }
+    if (provider === 'openai' || provider === 'chatgpt' || provider === 'gpt') {
+      return callChatGPT(systemPrompt, userPrompt, { ...options, model });
     }
+    throw new Error(`Unknown AI provider: ${provider}`);
+  });
 
-    throw error;
+  if (!fallbackEnabled) {
+    return callPrimary();
   }
+
+  const fallbackProvider = provider === 'claude' ? 'openai' : 'claude';
+  const fallbackModel = fallbackProvider === 'openai'
+    ? (process.env.AI_MODEL_OPENAI || 'gpt-4')
+    : (process.env.AI_MODEL_CLAUDE || 'sonnet');
+
+  return withFallback(
+    callPrimary,
+    () => callClaudeOrOpenAI(fallbackProvider, systemPrompt, userPrompt, options, fallbackModel)
+  );
+}
+
+async function callClaudeOrOpenAI(provider, systemPrompt, userPrompt, options, model) {
+  if (provider === 'claude') {
+    return callClaudeCLI(systemPrompt, userPrompt, { ...options, model });
+  }
+  return callChatGPT(systemPrompt, userPrompt, { ...options, model });
 }
 
 /**
@@ -344,13 +341,14 @@ async function testProvider(provider = 'claude') {
  * @returns {object} Current configuration including provider, model, etc.
  */
 function getAIConfig() {
+  const config = resolveStepModel('default');
   return {
-    provider: process.env.AI_PROVIDER || 'claude',
+    provider: config.provider,
     model: {
       claude: process.env.AI_MODEL_CLAUDE || 'sonnet',
       openai: process.env.AI_MODEL_OPENAI || 'gpt-4'
     },
-    fallbackEnabled: process.env.AI_FALLBACK_ENABLED === 'true',
+    fallbackEnabled: config.fallback,
     apiKeys: {
       openai: !!process.env.OPENAI_API_KEY
     }

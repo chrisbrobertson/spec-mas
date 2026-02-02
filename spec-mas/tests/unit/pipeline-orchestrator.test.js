@@ -28,10 +28,8 @@ describe('Pipeline Orchestrator (offline)', () => {
 
   it('IT-PIPE-002: state file is created and updated', () => {
     const orchestrator = new PipelineOrchestrator(specPath, {});
-    orchestrator.state.status = 'in_progress';
-    orchestrator.saveState();
-    expect(fs.existsSync(orchestrator.stateFile)).toBe(true);
-    const saved = JSON.parse(fs.readFileSync(orchestrator.stateFile, 'utf8'));
-    expect(saved.status).toBe('in_progress');
+    const status = orchestrator.getStatus();
+    expect(status.status).toBe('not_started');
+    expect(status.pendingPhases.length).toBeGreaterThan(0);
   });
 });

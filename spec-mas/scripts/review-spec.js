@@ -8,6 +8,7 @@
 const fs = require('fs');
 const path = require('path');
 const { callAI, calculateCost } = require('./ai-helper');
+const { resolveStepModel } = require('../src/ai/client');
 require('dotenv').config();
 const { parseSpec } = require('./spec-parser');
 
@@ -93,12 +94,11 @@ function loadReviewerPrompt(reviewerKey) {
  */
 async function callReviewerAI(reviewerPrompt, specContent, reviewerName, options = {}) {
   // Get AI provider configuration
-  const provider = process.env.AI_PROVIDER || 'claude';
+  const routing = resolveStepModel('review');
+  const provider = options.provider || routing.provider;
   const model = options.model ||
                 process.env.SPECMAS_REVIEWER_MODEL ||
-                (provider === 'claude'
-                  ? (process.env.AI_MODEL_CLAUDE || 'sonnet')
-                  : (process.env.AI_MODEL_OPENAI || 'gpt-4'));
+                routing.model;
   const maxTokens = parseInt(options.maxTokens || process.env.SPECMAS_MAX_TOKENS || '4096');
 
   if (options.verbose) {
@@ -116,7 +116,7 @@ async function callReviewerAI(reviewerPrompt, specContent, reviewerName, options
       provider,
       model,
       maxTokens,
-      fallback: process.env.AI_FALLBACK_ENABLED === 'true'
+      fallback: options.fallback ?? routing.fallback
     }
   );
 
@@ -604,7 +604,7 @@ async function main() {
     }
 
     // Check AI provider is configured
-    const provider = process.env.AI_PROVIDER || 'claude';
+    const { provider } = resolveStepModel('review');
 
     if (provider === 'claude') {
       console.log(colorize('AI Provider: Claude CLI', 'cyan'));

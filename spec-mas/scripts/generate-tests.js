@@ -167,8 +167,19 @@ function generateTestName(acceptanceCriterion) {
   return testName;
 }
 
-function generateTestCase(acceptanceCriterion, type) {
-  const testName = generateTestName(acceptanceCriterion);
+function ensureUniqueTestName(testName, usedNames) {
+  const count = usedNames.get(testName) || 0;
+  if (count === 0) {
+    usedNames.set(testName, 1);
+    return testName;
+  }
+  const next = count + 1;
+  usedNames.set(testName, next);
+  return `${testName} (${next})`;
+}
+
+function generateTestCase(acceptanceCriterion, type, testNameOverride) {
+  const testName = testNameOverride || generateTestName(acceptanceCriterion);
   const parsed = parseGivenWhenThen(acceptanceCriterion);
 
   // Generate test skeleton based on type
@@ -190,6 +201,14 @@ function generateTestCase(acceptanceCriterion, type) {
 `;
 
   return testCode;
+}
+
+function formatSpecPath(specPath) {
+  const cwd = process.cwd();
+  if (specPath && specPath.startsWith(cwd)) {
+    return path.relative(cwd, specPath);
+  }
+  return specPath ? path.basename(specPath) : 'unknown';
 }
 
 // ==========================================
@@ -234,15 +253,20 @@ function generateTestFile(spec, testType, config) {
   });
 
   // Generate test cases
+  const usedNames = new Map();
   const testCases = relevantCriteria
-    .map(ac => generateTestCase(ac, testType))
+    .map(ac => {
+      const baseName = generateTestName(ac);
+      const uniqueName = ensureUniqueTestName(baseName, usedNames);
+      return generateTestCase(ac, testType, uniqueName);
+    })
     .join('\n');
 
   // Prepare template variables
   const variables = {
     specName: featureName,
     featureName: featureName,
-    specPath: spec.filePath,
+    specPath: formatSpecPath(spec.filePath),
     testSuiteName: featureName,
     imports: generateImports(testType, config.framework),
     testCases: testCases || '  // TODO: Add test cases',
@@ -326,7 +350,7 @@ function generateTestMapping(spec, generatedTests) {
 
   let mapping = `# Test Mapping: ${featureName}\n\n`;
   mapping += `**Spec ID:** ${specId}  \n`;
-  mapping += `**Spec File:** ${spec.filePath}  \n`;
+  mapping += `**Spec File:** ${formatSpecPath(spec.filePath)}  \n`;
   mapping += `**Generated:** ${new Date().toISOString()}  \n\n`;
 
   mapping += `## Test Coverage\n\n`;
@@ -367,7 +391,7 @@ function generateTestMapping(spec, generatedTests) {
 
   mapping += `## Test Files Generated\n\n`;
   generatedTests.forEach(test => {
-    mapping += `- \`${test.filePath}\` (${test.type} tests, ${test.testCount} test cases)\n`;
+    mapping += `- \`${formatSpecPath(test.filePath)}\` (${test.type} tests, ${test.testCount} test cases)\n`;
   });
 
   mapping += `\n## Running Tests\n\n`;
@@ -550,5 +574,7 @@ module.exports = {
   generateTests,
   classifyTestType,
   generateTestName,
-  parseGivenWhenThen
+  parseGivenWhenThen,
+  ensureUniqueTestName,
+  formatSpecPath
 };

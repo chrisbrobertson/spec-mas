@@ -8,6 +8,7 @@
 const fs = require('fs');
 const path = require('path');
 const { callAI, calculateCost } = require('./ai-helper');
+const { resolveStepModel } = require('../src/ai/client');
 const { decomposeSpec } = require('./task-decomposition');
 const { validateSpec } = require('./validate-spec');
 const { parseSpec } = require('./spec-parser');
@@ -103,7 +104,7 @@ function validatePrerequisites(specPath, options) {
   console.log(colors.bright + 'Validating prerequisites...' + colors.reset);
 
   // Check AI provider is configured
-  const provider = process.env.AI_PROVIDER || 'claude';
+  const { provider } = resolveStepModel('implementation');
 
   if (provider === 'claude') {
     console.log(colors.green + '✓ AI Provider: Claude CLI' + colors.reset);
@@ -503,10 +504,9 @@ async function callAgent(agentPrompt, taskContext, taskId) {
     const startTime = Date.now();
 
     // Get AI provider configuration
-    const provider = process.env.AI_PROVIDER || 'claude';
-    const model = provider === 'claude'
-      ? (process.env.AI_MODEL_CLAUDE || 'claude-3-5-sonnet-20241022')
-      : (process.env.AI_MODEL_OPENAI || 'gpt-4');
+    const routing = resolveStepModel('implementation');
+    const provider = routing.provider;
+    const model = routing.model;
 
     // Call AI using unified interface
     const result = await callAI(
@@ -516,7 +516,7 @@ async function callAgent(agentPrompt, taskContext, taskId) {
         provider,
         model,
         maxTokens: 8192,
-        fallback: process.env.AI_FALLBACK_ENABLED === 'true'
+        fallback: routing.fallback
       }
     );
 
