@@ -29,11 +29,32 @@ function buildIssuePayload({ title, body, labels, assignees }) {
   };
 }
 
-function buildCommentBody({ agent, status, context, findings, next, artifacts }) {
+function buildCommentBody({
+  agent,
+  status,
+  context,
+  findings,
+  next,
+  artifacts,
+  runId,
+  specId,
+  issueNumber,
+  phase,
+  progress,
+  completeness,
+  summary
+}) {
   const lines = [];
   const mention = agent ? `@agent-${agent}` : '@agent';
-  lines.push(`${mention} STATUS: ${status}`);
-  if (context) lines.push(`Context: ${context}`);
+  lines.push(`${mention} RUN UPDATE`);
+  if (runId) lines.push(`Run: ${runId}`);
+  if (specId) lines.push(`Spec: ${specId}`);
+  if (issueNumber) lines.push(`Issue: ${issueNumber}`);
+  if (phase) lines.push(`Phase: ${phase}`);
+  if (status) lines.push(`Status: ${status}`);
+  if (progress) lines.push(`Progress: ${progress}`);
+  if (typeof completeness === 'number') lines.push(`Completeness: ${completeness}%`);
+  if (summary || context) lines.push(`Summary: ${summary || context}`);
   if (findings && findings.length > 0) {
     lines.push('Findings:');
     findings.forEach(item => lines.push(`- ${item}`));
@@ -93,10 +114,24 @@ async function listIssues(params = {}) {
   return apiRequest(path, { method: 'GET' });
 }
 
+async function getIssue(issueNumber) {
+  const repo = getRepo();
+  return apiRequest(`/repos/${repo}/issues/${issueNumber}`, { method: 'GET' });
+}
+
+async function listIssueComments(issueNumber, params = {}) {
+  const repo = getRepo();
+  const search = new URLSearchParams(params).toString();
+  const path = `/repos/${repo}/issues/${issueNumber}/comments${search ? `?${search}` : ''}`;
+  return apiRequest(path, { method: 'GET' });
+}
+
 module.exports = {
   buildIssuePayload,
   buildCommentBody,
   createIssue,
   commentIssue,
-  listIssues
+  listIssues,
+  getIssue,
+  listIssueComments
 };

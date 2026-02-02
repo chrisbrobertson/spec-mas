@@ -12,16 +12,21 @@ describe('GitHub Issues Work Queue', () => {
     expect(payload.labels).toContain('spec:x');
   });
 
-  it('buildCommentBody formats status comment', () => {
+  it('buildCommentBody formats run update comment', () => {
     const body = buildCommentBody({
       agent: 'claude',
       status: 'PASS',
       context: 'Done',
+      runId: 'run-1',
+      specId: 'spec-1',
       findings: ['All good'],
       next: ['Close issue'],
       artifacts: ['report.json']
     });
-    expect(body).toContain('@agent-claude STATUS: PASS');
+    expect(body).toContain('@agent-claude RUN UPDATE');
+    expect(body).toContain('Run: run-1');
+    expect(body).toContain('Spec: spec-1');
+    expect(body).toContain('Status: PASS');
     expect(body).toContain('Findings:');
     expect(body).toContain('Artifacts: report.json');
   });

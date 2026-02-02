@@ -47,6 +47,7 @@
     "test:e2e": "jest spec-mas/tests/e2e",
     "test:deterministic": "jest spec-mas/tests/deterministic",
     "dev": "npm run dev:next",
+    "dev:server": "node spec-mas/scripts/specmas.js server",
     "build": "npm run build:next",
     "start": "npm run start:next",
     "lint": "eslint . --ext .js,.jsx,.ts,.tsx",

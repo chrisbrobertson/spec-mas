@@ -16,6 +16,7 @@ const { estimateCost } = require('./cost-estimator');
 const { initProject } = require('./init-project');
 const { detectTools } = require('./agent-registry');
 const { handleCreate, handleComment } = require('./issue-queue');
+const { postRunUpdate } = require('./central-client');
 
 // Package info
 const packageJson = require(path.resolve(__dirname, '..', '..', 'package.json'));
@@ -168,6 +169,64 @@ program
         await handleComment(arg1, arg2);
       } else {
         throw new Error('unknown action');
+      }
+    } catch (error) {
+      console.error(error.message || error);
+      process.exit(1);
+    }
+  });
+
+program
+  .command('server')
+  .description('Start Spec-MAS central server (dev)')
+  .option('--port <port>', 'Port to listen on', '3333')
+  .option('--host <host>', 'Host to bind', '127.0.0.1')
+  .action(async (options) => {
+    const { startServer } = require('./web-ui-api');
+    startServer(Number(options.port), options.host);
+  });
+
+program
+  .command('run-update <run-id>')
+  .description('Send a structured run update to the central server')
+  .option('--spec <id>', 'Spec id')
+  .option('--issue <number>', 'Issue number')
+  .option('--phase <name>', 'Pipeline phase')
+  .option('--status <status>', 'Run status')
+  .option('--progress <text>', 'Progress summary')
+  .option('--completeness <percent>', 'Completeness percentage')
+  .option('--summary <text>', 'Short summary')
+  .option('--agent <id>', 'Agent id', 'specmas')
+  .option('--comment', 'Also post update as GitHub issue comment')
+  .action(async (runId, options) => {
+    try {
+      const payload = {
+        id: runId,
+        specId: options.spec,
+        issueNumber: options.issue,
+        phase: options.phase,
+        status: options.status,
+        progress: options.progress,
+        completeness: options.completeness ? Number(options.completeness) : undefined,
+        summary: options.summary,
+        agent: options.agent
+      };
+      await postRunUpdate(payload);
+
+      if (options.comment && options.issue) {
+        const { buildCommentBody, commentIssue } = require('./github-issues');
+        const body = buildCommentBody({
+          agent: options.agent,
+          status: options.status,
+          runId,
+          specId: options.spec,
+          issueNumber: options.issue,
+          phase: options.phase,
+          progress: options.progress,
+          completeness: options.completeness ? Number(options.completeness) : undefined,
+          summary: options.summary
+        });
+        await commentIssue(options.issue, body);
       }
     } catch (error) {
       console.error(error.message || error);

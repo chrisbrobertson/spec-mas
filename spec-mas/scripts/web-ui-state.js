@@ -7,7 +7,9 @@ const path = require('path');
 const { TOOL_DEFINITIONS } = require('./agent-registry');
 
 function getStateDir() {
-  return path.join(process.cwd(), '.specmas');
+  return process.env.SPECMAS_STATE_DIR
+    || process.env.SPECMAS_SERVER_STATE_DIR
+    || path.join(process.cwd(), '.specmas');
 }
 
 function readJson(filePath, fallback) {
@@ -17,6 +19,16 @@ function readJson(filePath, fallback) {
   } catch {
     return fallback;
   }
+}
+
+function writeJson(filePath, data) {
+  const dir = path.dirname(filePath);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
+}
+
+function safeId(value) {
+  return String(value || '').replace(/[^\w.-]+/g, '-');
 }
 
 function listRunStates() {
@@ -29,12 +41,44 @@ function listRunStates() {
       id: file.replace('-state.json', ''),
       specFile: state.specFile,
       status: state.status,
-      currentPhase: state.currentPhase,
+      currentPhase: state.currentPhase || state.phase || null,
       completedPhases: state.completedPhases || [],
       updatedAt: state.updatedAt || state.startedAt || null,
-      nextStep: state.currentPhase ? `Finish ${state.currentPhase}` : 'Start run'
+      nextStep: state.currentPhase
+        ? `Finish ${state.currentPhase}`
+        : state.phase
+          ? `Finish ${state.phase}`
+          : 'Start run'
     };
   });
+}
+
+function getRunState(id) {
+  const stateDir = getStateDir();
+  const file = path.join(stateDir, `${safeId(id)}-state.json`);
+  if (!fs.existsSync(file)) return null;
+  return readJson(file, null);
+}
+
+function upsertRunState(run) {
+  const stateDir = getStateDir();
+  if (!fs.existsSync(stateDir)) fs.mkdirSync(stateDir, { recursive: true });
+  const runId = run.id || run.runId || run.specId || run.specFile;
+  if (!runId) {
+    throw new Error('run id required');
+  }
+  const file = path.join(stateDir, `${safeId(runId)}-state.json`);
+  const existing = readJson(file, {});
+  const now = new Date().toISOString();
+  const next = {
+    ...existing,
+    ...run,
+    id: safeId(runId),
+    updatedAt: now,
+    startedAt: existing.startedAt || run.startedAt || now
+  };
+  writeJson(file, next);
+  return next;
 }
 
 function readIssueCache() {
@@ -76,10 +120,20 @@ function updateAgent(agentId, updates) {
   return next.find(agent => agent.id === agentId);
 }
 
+function setIssueCache(issues) {
+  const stateDir = getStateDir();
+  const issuesPath = path.join(stateDir, 'issues.json');
+  writeJson(issuesPath, issues || []);
+  return issues || [];
+}
+
 module.exports = {
   listRunStates,
+  getRunState,
+  upsertRunState,
   getIssues,
   getIssueById,
+  setIssueCache,
   getAgents,
   updateAgent
 };
