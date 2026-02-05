@@ -1,0 +1,13 @@
+node_modules/
+implementation-output/
+runs/
+.specmas/
+.claude/
+tests/
+tests-auth/
+examples/
+specs/
+spec-mas/docs/
+spec-mas/agents/
+spec-mas/templates/
+spec-mas/tests/
