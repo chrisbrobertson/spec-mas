@@ -22,6 +22,9 @@ const IGNORE_DIRS = new Set([
   'implementation-output',
   'tests-auth'
 ]);
+const IGNORE_FILES = new Set([
+  path.join(process.cwd(), 'spec-mas', 'tests', 'unit', 'check-tests.test.js')
+]);
 
 const PLACEHOLDER_PATTERNS = [
   /expect\s*\(\s*true\s*\)\.toBe\s*\(\s*true\s*\)/,
@@ -52,6 +55,7 @@ function findPlaceholderAssertions(searchPaths = DEFAULT_PATHS) {
     const files = walk(basePath);
     for (const filePath of files) {
       if (!isTestFile(filePath)) continue;
+      if (IGNORE_FILES.has(filePath)) continue;
       const content = fs.readFileSync(filePath, 'utf8');
       for (const pattern of PLACEHOLDER_PATTERNS) {
         if (pattern.test(content)) {
