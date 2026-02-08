@@ -19,7 +19,15 @@ describe('Deterministic generation integration', () => {
     const jestConfig = path.join(baseDir, 'jest.config.js');
     fs.writeFileSync(jestConfig, "module.exports = { rootDir: __dirname, testMatch: ['**/*.test.js'] };");
     const resolvedTestPath = fs.realpathSync(result.filePath);
-    execFileSync('node', [jestBin, '--runInBand', '--config', jestConfig, '--runTestsByPath', resolvedTestPath], {
+    execFileSync('node', [
+      jestBin,
+      '--runInBand',
+      '--updateSnapshot',
+      '--config',
+      jestConfig,
+      '--runTestsByPath',
+      resolvedTestPath
+    ], {
       stdio: 'inherit',
       cwd: baseDir
     });
